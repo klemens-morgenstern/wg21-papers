@@ -1,6 +1,5 @@
-|   |   |
-|---|---|
-| Document:   | DXXXX
+| Document | D0000 |
+|----------|-------|
 | Date:       | 2025-12-31
 | Reply-to:   | Vinnie Falco \<vinnie.falco@gmail.com\>
 | Audience:   | SG1, LEWG
