@@ -216,9 +216,9 @@ struct executor_ref
 
 struct socket
 {
-    struct async_awaitable
+    struct async_read_some_t
     {
-        async_awaitable(socket& s) : s_(s) {}
+        async_read_some_t(socket& s) : s_(s) {}
         bool await_ready() const noexcept { return false; }
         void await_resume() const noexcept {}
 
@@ -227,7 +227,7 @@ struct socket
         template<class Executor>
         std::coroutine_handle<> await_suspend(coro h, Executor const& ex) const
         {
-            s_.perform(h, executor_ref(ex));
+            s_.do_read_some(h, executor_ref(ex));
             return std::noop_coroutine();
         }
 
@@ -236,15 +236,15 @@ struct socket
     };
 
     socket()
-        : op_(new state)
+        : read_op_(new state)
         , pool_(frame_pool::make_global())
     {
     }
 
     // Asynchronous operation that wraps OS-level I/O
-    async_awaitable async_io()
+    async_read_some_t async_read_some()
     {
-        return async_awaitable(*this);
+        return async_read_some_t(*this);
     }
 
     // Frame allocator for coroutines using this socket
@@ -254,7 +254,7 @@ struct socket
     }
 
 private:
-    struct state : work
+    struct read_state : work
     {
         coro h_;
         executor_ref ex_;
@@ -269,17 +269,17 @@ private:
         // OVERLAPPED, HANDLE, etc
     }; 
 
-    void perform(coro h, executor_ref const& ex)
+    void do_read_some(coro h, executor_ref const& ex)
     {
-        op_->h_ = h;
-        op_->ex_ = ex;
-        ex.post(op_.get()); // simulate OS call
+        // This definition can go in the TU
+        read_op_->h_ = h;
+        read_op_->ex_ = ex;
+        ex.post(read_op_.get()); // simulate OS call
     }
 
-    std::unique_ptr<state> op_;
+    std::unique_ptr<read_state> read_op_;
     frame_pool pool_;
 };
-
 
 //----------------------------------------------------------
 
@@ -598,7 +598,7 @@ void async_run(Executor ex, task t)
 
 inline task async_read_some(socket& sock)
 {
-    co_await sock.async_io();
+    co_await sock.async_read_some();
 }
 
 inline task async_read(socket& sock)

@@ -91,10 +91,10 @@ struct bench_test
         co::socket co_sock;
 
         // 1 level
-        bench("async_io         callback: ", cb_sock,
-            [](auto& sock, auto h){ sock.async_io(std::move(h)); });
-     bench_co("co::async_io     coro:     ",
-            [&](int& count) -> co::task { co_await co_sock.async_io(); ++count; });
+        bench("read_some        callback: ", cb_sock,
+            [](auto& sock, auto h){ sock.async_read_some(std::move(h)); });
+     bench_co("co::read_some    coro:     ",
+            [&](int& count) -> co::task { co_await co_sock.async_read_some(); ++count; });
 
         std::cout << "\n";
 

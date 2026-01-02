@@ -104,7 +104,7 @@ struct socket
     Executor get_executor() const { return ex_; }
 
     template<class Handler>
-    void async_io(Handler&& handler)
+    void async_read_some(Handler&& handler)
     {
         using op_t = io_op<Executor, std::decay_t<Handler>>;
         ex_.post(new op_t(ex_, std::forward<Handler>(handler)));
@@ -116,7 +116,7 @@ struct socket
 template<class Executor, class Handler>
 void async_read_some(socket<Executor>& sock, Handler&& handler)
 {
-    sock.async_io(std::forward<Handler>(handler));
+    sock.async_read_some(std::forward<Handler>(handler));
 }
 
 //----------------------------------------------------------
@@ -133,7 +133,6 @@ struct read_op
 
     void operator()()
     {
-        // async_read calls async_read_some 10 times
         if(count_++ < 10)
         {
             async_read_some(*sock_, std::move(*this));
