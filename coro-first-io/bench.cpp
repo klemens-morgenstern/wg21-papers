@@ -37,7 +37,7 @@ void operator delete(void* p, std::size_t) noexcept
 
 struct bench_test
 {
-    static constexpr int N = 1000000;
+    static constexpr int N = 100000;
 
     template<class Socket, class AsyncOp>
     static void bench(char const* name, Socket& sock, AsyncOp op)
@@ -61,10 +61,9 @@ struct bench_test
     }
 
     template<class MakeTask>
-    static void bench_co(char const* name, MakeTask make_task)
+    static void bench_co(char const* name, io_context& ioc, MakeTask make_task)
     {
         using clock = std::chrono::high_resolution_clock;
-        io_context ioc;
         int count = 0;
 
         g_alloc_count = 0;
@@ -93,7 +92,7 @@ struct bench_test
         // 1 call
         bench("read_some        callback: ", cb_sock,
             [](auto& sock, auto h){ sock.async_read_some(std::move(h)); });
-     bench_co("read_some        coro:     ",
+        bench_co("read_some        coro:     ", ioc,
             [&](int& count) -> co::task { co_await co_sock.async_read_some(); ++count; });
 
         std::cout << "\n";
@@ -101,7 +100,7 @@ struct bench_test
         // 10 calls
         bench("async_read       callback: ", cb_sock,
             [](auto& sock, auto h){ cb::async_read(sock, std::move(h)); });
-     bench_co("async_read       coro:     ",
+        bench_co("async_read       coro:     ", ioc,
             [&](int& count) -> co::task { co_await co::async_read(co_sock); ++count; });
 
         std::cout << "\n";
@@ -109,7 +108,7 @@ struct bench_test
         // 100 calls
         bench("async_request    callback: ", cb_sock,
             [](auto& sock, auto h){ cb::async_request(sock, std::move(h)); });
-     bench_co("async_request    coro:     ",
+        bench_co("async_request    coro:     ", ioc,
             [&](int& count) -> co::task { co_await co::async_request(co_sock); ++count; });
 
         std::cout << "\n";
@@ -117,7 +116,7 @@ struct bench_test
         // 1000 calls
         bench("async_session    callback: ", cb_sock,
             [](auto& sock, auto h){ cb::async_session(sock, std::move(h)); });
-     bench_co("async_session    coro:     ",
+        bench_co("async_session    coro:     ", ioc,
             [&](int& count) -> co::task { co_await co::async_session(co_sock); ++count; });
     }
 };

@@ -18,6 +18,10 @@
 #include <mutex>
 
 namespace co {
+
+// Forward declaration
+struct task;
+
 namespace detail {
 
 // Header stored before coroutine frame for deallocation
@@ -251,13 +255,6 @@ struct root_task
             h_.destroy();
     }
 };
-
-} // detail
-
-// Forward declaration
-struct task;
-
-namespace detail {
 
 template<class Executor>
 root_task<Executor> wrapper(task t);
