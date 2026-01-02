@@ -113,69 +113,127 @@ struct socket
 
 //----------------------------------------------------------
 
-template<class Executor, class Handler>
-void async_read_some(socket<Executor>& sock, Handler&& handler)
-{
-    sock.async_read_some(std::forward<Handler>(handler));
-}
-
-//----------------------------------------------------------
-
-template<class Executor, class Handler>
+template<class Stream, class Handler>
 struct read_op
 {
-    socket<Executor>* sock_;
+    Stream* stream_;
     Handler handler_;
     int count_ = 0;
 
-    read_op(socket<Executor>& sock, Handler h)
-        : sock_(&sock), handler_(std::move(h)) {}
+    read_op(Stream& stream, Handler h)
+        : stream_(&stream), handler_(std::move(h)) {}
 
     void operator()()
     {
         if(count_++ < 10)
         {
-            async_read_some(*sock_, std::move(*this));
+            stream_->async_read_some(std::move(*this));
             return;
         }
-        sock_->get_executor().dispatch(std::move(handler_));
+        stream_->get_executor().dispatch(std::move(handler_));
     }
 };
 
-template<class Executor, class Handler>
-void async_read(socket<Executor>& sock, Handler&& handler)
+/** Performs a composed read operation on a stream.
+
+    This function performs 10 sequential read_some operations on the
+    stream, simulating a composed read that continues until a complete
+    message or buffer has been received.
+
+    This demonstrates a 2-level composed operation: async_read calls
+    the stream's async_read_some member function 10 times.
+
+    @param stream The stream to read from.
+    @param handler The completion handler to invoke when done.
+*/
+template<class Stream, class Handler>
+void async_read(Stream& stream, Handler&& handler)
 {
-    read_op<Executor, std::decay_t<Handler>>(sock, std::forward<Handler>(handler))();
+    read_op<Stream, std::decay_t<Handler>>(stream, std::forward<Handler>(handler))();
 }
 
 //----------------------------------------------------------
 
-template<class Executor, class Handler>
+template<class Stream, class Handler>
 struct request_op
 {
-    socket<Executor>* sock_;
+    Stream* stream_;
     Handler handler_;
     int count_ = 0;
 
-    request_op(socket<Executor>& sock, Handler h)
-        : sock_(&sock), handler_(std::move(h)) {}
+    request_op(Stream& stream, Handler h)
+        : stream_(&stream), handler_(std::move(h)) {}
 
     void operator()()
     {
-        // async_request calls async_read 10 times
         if(count_++ < 10)
         {
-            async_read(*sock_, std::move(*this));
+            async_read(*stream_, std::move(*this));
             return;
         }
-        sock_->get_executor().dispatch(std::move(handler_));
+        stream_->get_executor().dispatch(std::move(handler_));
     }
 };
 
-template<class Executor, class Handler>
-void async_request(socket<Executor>& sock, Handler&& handler)
+/** Performs a composed request operation on a stream.
+
+    This function performs 10 sequential async_read operations,
+    simulating a higher-level protocol operation such as reading
+    an HTTP request with headers and body.
+
+    This demonstrates a 3-level composed operation: async_request
+    calls async_read 10 times, each of which performs 10 read_some
+    operations, for a total of 100 I/O operations.
+
+    @param stream The stream to read from.
+    @param handler The completion handler to invoke when done.
+*/
+template<class Stream, class Handler>
+void async_request(Stream& stream, Handler&& handler)
 {
-    request_op<Executor, std::decay_t<Handler>>(sock, std::forward<Handler>(handler))();
+    request_op<Stream, std::decay_t<Handler>>(stream, std::forward<Handler>(handler))();
+}
+
+//----------------------------------------------------------
+
+template<class Stream, class Handler>
+struct session_op
+{
+    Stream* stream_;
+    Handler handler_;
+    int count_ = 0;
+
+    session_op(Stream& stream, Handler h)
+        : stream_(&stream), handler_(std::move(h)) {}
+
+    void operator()()
+    {
+        if(count_++ < 10)
+        {
+            async_request(*stream_, std::move(*this));
+            return;
+        }
+        stream_->get_executor().dispatch(std::move(handler_));
+    }
+};
+
+/** Performs a composed session operation on a stream.
+
+    This function performs 10 sequential async_request operations,
+    simulating a complete session that handles multiple requests
+    over a persistent connection.
+
+    This demonstrates a 4-level composed operation: async_session
+    calls async_request 10 times, each of which performs 100 I/O
+    operations, for a total of 1000 I/O operations.
+
+    @param stream The stream to use for the session.
+    @param handler The completion handler to invoke when done.
+*/
+template<class Stream, class Handler>
+void async_session(Stream& stream, Handler&& handler)
+{
+    session_op<Stream, std::decay_t<Handler>>(stream, std::forward<Handler>(handler))();
 }
 
 } // cb

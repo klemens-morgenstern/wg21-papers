@@ -90,35 +90,35 @@ struct bench_test
         cb::socket cb_sock(ioc.get_executor());
         co::socket co_sock;
 
-        // 1 level
+        // 1 call
         bench("read_some        callback: ", cb_sock,
             [](auto& sock, auto h){ sock.async_read_some(std::move(h)); });
-     bench_co("co::read_some    coro:     ",
+     bench_co("read_some        coro:     ",
             [&](int& count) -> co::task { co_await co_sock.async_read_some(); ++count; });
 
         std::cout << "\n";
 
-        // 2 levels
-        bench("async_read_some  callback: ", cb_sock,
-            [](auto& sock, auto h){ cb::async_read_some(sock, std::move(h)); });
-     bench_co("co::read_some    coro:     ",
-            [&](int& count) -> co::task { co_await co::async_read_some(co_sock); ++count; });
-
-        std::cout << "\n";
-
-        // 3 levels
+        // 10 calls
         bench("async_read       callback: ", cb_sock,
             [](auto& sock, auto h){ cb::async_read(sock, std::move(h)); });
-     bench_co("co::read         coro:     ",
+     bench_co("async_read       coro:     ",
             [&](int& count) -> co::task { co_await co::async_read(co_sock); ++count; });
 
         std::cout << "\n";
 
-        // 100 iterations
+        // 100 calls
         bench("async_request    callback: ", cb_sock,
             [](auto& sock, auto h){ cb::async_request(sock, std::move(h)); });
-     bench_co("co::request      coro:     ",
+     bench_co("async_request    coro:     ",
             [&](int& count) -> co::task { co_await co::async_request(co_sock); ++count; });
+
+        std::cout << "\n";
+
+        // 1000 calls
+        bench("async_session    callback: ", cb_sock,
+            [](auto& sock, auto h){ cb::async_session(sock, std::move(h)); });
+     bench_co("async_session    coro:     ",
+            [&](int& count) -> co::task { co_await co::async_session(co_sock); ++count; });
     }
 };
 

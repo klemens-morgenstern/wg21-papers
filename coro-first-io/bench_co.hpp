@@ -620,21 +620,66 @@ void async_run(Executor ex, task t)
 
 //----------------------------------------------------------
 
-inline task async_read_some(socket& sock)
-{
-    co_await sock.async_read_some();
-}
+/** Performs a composed read operation on a stream.
 
-inline task async_read(socket& sock)
+    This coroutine performs 10 sequential read_some operations on the
+    stream, simulating a composed read that continues until a complete
+    message or buffer has been received.
+
+    This demonstrates a 2-level composed operation: async_read calls
+    the stream's async_read_some member function 10 times.
+
+    @param stream The stream to read from.
+
+    @return A task that completes when all read operations finish.
+*/
+template<class Stream>
+task async_read(Stream& stream)
 {
     for(int i = 0; i < 10; ++i)
-        co_await async_read_some(sock);
+        co_await stream.async_read_some();
 }
 
-inline task async_request(socket& sock)
+/** Performs a composed request operation on a stream.
+
+    This coroutine performs 10 sequential async_read operations,
+    simulating a higher-level protocol operation such as reading
+    an HTTP request with headers and body.
+
+    This demonstrates a 3-level composed operation: async_request
+    calls async_read 10 times, each of which performs 10 read_some
+    operations, for a total of 100 I/O operations.
+
+    @param stream The stream to read from.
+
+    @return A task that completes when the entire request is read.
+*/
+template<class Stream>
+task async_request(Stream& stream)
 {
     for(int i = 0; i < 10; ++i)
-        co_await async_read(sock);
+        co_await async_read(stream);
+}
+
+/** Performs a composed session operation on a stream.
+
+    This coroutine performs 10 sequential async_request operations,
+    simulating a complete session that handles multiple requests
+    over a persistent connection.
+
+    This demonstrates a 4-level composed operation: async_session
+    calls async_request 10 times, each of which performs 100 I/O
+    operations, for a total of 1000 I/O operations.
+
+    @param stream The stream to use for the session.
+
+    @return A task that completes when the session ends.
+*/
+template<class Stream>
+task async_session(Stream& stream)
+{
+    for(int i = 0; i < 10; ++i)
+        co_await async_request(stream);
 }
 
 } // co
