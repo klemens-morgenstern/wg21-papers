@@ -1,8 +1,15 @@
-# Coroutine-First Asynchronous I/O: A Type-Erased Affine Framework
+**Document number:** PXXXXR0  
+**Date:** 2025-12-31  
+**Reply-to:** Vinnie Falco \<vinnie.falco@gmail.com\>  
+**Audience:** SG1, LEWG  
+
+---
+
+# Coroutine-First I/O: A Type-Erased Affine Framework
 
 ## Abstract
 
-This paper presents a coroutine-first asynchronous I/O framework that achieves executor flexibility without sacrificing encapsulation. We introduce the *affine awaitable protocol*, a technique for propagating execution context through coroutine chains without embedding executor types in public interfaces. Platform I/O types and their operation states remain hidden in translation units, while composed algorithms expose only `task` return types. We compare allocation behavior and performance against traditional callback-based designs, revealing that coroutines trade a fixed overhead for superior scaling at depth.
+This paper presents a coroutine-first asynchronous I/O framework that achieves executor flexibility without sacrificing encapsulation. We deploy the *affine awaitable protocol*, a technique for propagating execution context through coroutine chains without embedding executor types in public interfaces. Platform I/O types and their operation states remain hidden in translation units, while composed algorithms expose only `task` return types. We compare allocation behavior and performance against traditional callback-based designs, revealing that coroutines trade a fixed overhead for superior scaling at depth.
 
 ---
 
