@@ -11,10 +11,10 @@
 #define BENCH_CO_HPP
 
 #include "bench.hpp"
+#include "bench_co_detail.hpp"
 
 #include <exception>
 #include <memory>
-#include <mutex>
 
 #ifdef __clang__
 #define CORO_AWAIT_ELIDABLE [[clang::coro_await_elidable]]
@@ -26,6 +26,24 @@ namespace co {
 
 //----------------------------------------------------------
 
+/** A concept for types that can dispatch coroutines and post work items.
+
+    An executor is responsible for scheduling and running asynchronous
+    operations. It provides mechanisms for symmetric transfer of coroutine
+    handles and for queuing work items to be executed later.
+
+    Given:
+    @li `t` a const reference to type `T`
+    @li `h` a coroutine handle (`std::coroutine_handle<void>`)
+    @li `w` a pointer to a work item (`work*`)
+
+    The following expressions must be valid:
+    @li `t.dispatch(h)` - Returns a coroutine handle for symmetric transfer
+    @li `t.post(w)` - Queues a work item for later execution
+    @li `t == t` - Equality comparison returns a boolean-convertible value
+
+    @tparam T The type to check for executor conformance.
+*/
 template<class T>
 concept is_executor = requires(T const& t, coro h, work* w) {
     { t.dispatch(h) } -> std::convertible_to<coro>;
@@ -33,142 +51,63 @@ concept is_executor = requires(T const& t, coro h, work* w) {
     { t == t } -> std::convertible_to<bool>;
 };
 
+/** A concept for types that can allocate and deallocate memory for coroutine frames.
+
+    Frame allocators are used to manage memory for coroutine frames, enabling
+    custom allocation strategies such as pooling to reduce allocation overhead.
+
+    Given:
+    @li `a` a reference to type `A`
+    @li `p` a void pointer
+    @li `n` a size value (`std::size_t`)
+
+    The following expressions must be valid:
+    @li `a.allocate(n)` - Allocates `n` bytes and returns a pointer to the memory
+    @li `a.deallocate(p, n)` - Deallocates `n` bytes previously allocated at `p`
+
+    @tparam A The type to check for frame allocator conformance.
+*/
 template<class A>
 concept frame_allocator = requires(A& a, void* p, std::size_t n) {
     { a.allocate(n) } -> std::convertible_to<void*>;
     { a.deallocate(p, n) } -> std::same_as<void>;
 };
 
+/** A concept for types that provide access to a frame allocator.
+
+    Types satisfying this concept can be used as the first or second parameter
+    to coroutine functions to enable custom frame allocation. The promise type
+    will call `get_frame_allocator()` to obtain the allocator for the coroutine
+    frame.
+
+    Given:
+    @li `t` a reference to type `T`
+
+    The following expression must be valid:
+    @li `t.get_frame_allocator()` - Returns a reference to a type satisfying
+        `frame_allocator`
+
+    @tparam T The type to check for frame allocator access.
+*/
 template<class T>
 concept has_frame_allocator = requires(T& t) {
     { t.get_frame_allocator() } -> frame_allocator;
 };
 
 //----------------------------------------------------------
-// Frame pool: thread-local with global overflow
-// Tracks block sizes to avoid returning undersized blocks
 
-class frame_pool
-{
-    struct block
-    {
-        block* next;
-        std::size_t size;
-    };
+/** A type-erased reference to an executor.
 
-    struct global_pool
-    {
-        std::mutex mtx;
-        block* head = nullptr;
+    This class provides a non-owning, type-erased wrapper around any type
+    that satisfies the `is_executor` concept. It enables polymorphic executor
+    usage without virtual functions by storing a pointer to a static vtable
+    of function pointers.
 
-        ~global_pool()
-        {
-            while(head)
-            {
-                auto p = head;
-                head = head->next;
-                ::operator delete(p);
-            }
-        }
+    The executor_ref does not own the executor it references. The caller must
+    ensure the referenced executor outlives the executor_ref.
 
-        void push(block* b)
-        {
-            std::lock_guard<std::mutex> lock(mtx);
-            b->next = head;
-            head = b;
-        }
-
-        block* pop(std::size_t n)
-        {
-            std::lock_guard<std::mutex> lock(mtx);
-            block** pp = &head;
-            while(*pp)
-            {
-                if((*pp)->size >= n)
-                {
-                    block* p = *pp;
-                    *pp = p->next;
-                    return p;
-                }
-                pp = &(*pp)->next;
-            }
-            return nullptr;
-        }
-    };
-
-    struct local_pool
-    {
-        block* head = nullptr;
-
-        void push(block* b)
-        {
-            b->next = head;
-            head = b;
-        }
-
-        block* pop(std::size_t n)
-        {
-            block** pp = &head;
-            while(*pp)
-            {
-                if((*pp)->size >= n)
-                {
-                    block* p = *pp;
-                    *pp = p->next;
-                    return p;
-                }
-                pp = &(*pp)->next;
-            }
-            return nullptr;
-        }
-    };
-
-    global_pool& global_;
-
-    static local_pool& get_local()
-    {
-        static thread_local local_pool local;
-        return local;
-    }
-
-public:
-    explicit frame_pool(global_pool& g) : global_(g) {}
-
-    void* allocate(std::size_t n)
-    {
-        // First try thread-local (with size check)
-        if(auto* b = get_local().pop(n))
-            return b;
-
-        // Then try global (with size check)
-        if(auto* b = global_.pop(n))
-            return b;
-
-        // Fall back to heap
-        auto* b = static_cast<block*>(::operator new(n));
-        b->size = n;
-        return b;
-    }
-
-    void deallocate(void* p, std::size_t n)
-    {
-        // Restore the size (was overwritten by alloc_header::ctx)
-        auto* b = static_cast<block*>(p);
-        b->size = n;
-        // Return to thread-local pool
-        get_local().push(b);
-    }
-
-    // Factory for creating a global pool
-    static global_pool& make_global()
-    {
-        static global_pool pool;
-        return pool;
-    }
-};
-
-//----------------------------------------------------------
-
+    @see is_executor
+*/
 struct executor_ref
 {
     struct ops
@@ -214,6 +153,22 @@ struct executor_ref
 
 //----------------------------------------------------------
 
+/** A simulated asynchronous socket for benchmarking coroutine I/O.
+
+    This class models an asynchronous socket that provides I/O operations
+    returning awaitable types. It demonstrates the affine awaitable protocol
+    where the awaitable receives the caller's executor for completion dispatch.
+
+    The socket owns a frame allocator pool that coroutines using this socket
+    can access via `get_frame_allocator()`. This enables allocation elision
+    for coroutine frames when the socket is passed as a parameter.
+
+    @note This is a simulation for benchmarking purposes. Real implementations
+    would integrate with OS-level async I/O facilities.
+
+    @see async_read_some_t
+    @see has_frame_allocator
+*/
 struct socket
 {
     struct async_read_some_t
@@ -236,8 +191,8 @@ struct socket
     };
 
     socket()
-        : read_op_(new state)
-        , pool_(frame_pool::make_global())
+        : read_op_(new read_state)
+        , pool_(detail::frame_pool::make_global())
     {
     }
 
@@ -248,7 +203,7 @@ struct socket
     }
 
     // Frame allocator for coroutines using this socket
-    frame_pool& get_frame_allocator()
+    detail::frame_pool& get_frame_allocator()
     {
         return pool_;
     }
@@ -278,7 +233,7 @@ private:
     }
 
     std::unique_ptr<read_state> read_op_;
-    frame_pool pool_;
+    detail::frame_pool pool_;
 };
 
 //----------------------------------------------------------
@@ -290,6 +245,31 @@ struct alloc_header
     void* ctx;
 };
 
+/** A coroutine task type implementing the affine awaitable protocol.
+
+    This task type represents an asynchronous operation that can be awaited.
+    It implements the affine awaitable protocol where `await_suspend` receives
+    the caller's executor, enabling proper completion dispatch across executor
+    boundaries.
+
+    Key features:
+    @li Lazy execution - the coroutine does not start until awaited
+    @li Symmetric transfer - uses coroutine handle returns for efficient resumption
+    @li Executor inheritance - inherits caller's executor unless explicitly bound
+    @li Custom frame allocation - supports frame allocators via first/second parameter
+
+    The task uses `[[clang::coro_await_elidable]]` (when available) to enable
+    heap allocation elision optimization (HALO) for nested coroutine calls.
+
+    @par Frame Allocation
+    The promise type provides custom operator new overloads that detect
+    `has_frame_allocator` on the first or second coroutine parameter,
+    enabling pooled allocation of coroutine frames.
+
+    @see executor_ref
+    @see has_frame_allocator
+    @see detail::frame_pool
+*/
 struct CORO_AWAIT_ELIDABLE task
 {
     struct promise_type
@@ -338,14 +318,14 @@ struct CORO_AWAIT_ELIDABLE task
         // Default: no frame allocator in first two params - use global pool
         static void* operator new(std::size_t size)
         {
-            static frame_pool alloc(frame_pool::make_global());
+            static detail::frame_pool alloc(detail::frame_pool::make_global());
             
             std::size_t total = size + sizeof(alloc_header);
             void* raw = alloc.allocate(total);
             
             auto* header = static_cast<alloc_header*>(raw);
             header->dealloc = [](void* ctx, void* p, std::size_t n) {
-                static_cast<frame_pool*>(ctx)->deallocate(p, n);
+                static_cast<detail::frame_pool*>(ctx)->deallocate(p, n);
             };
             header->ctx = &alloc;
             
@@ -469,6 +449,23 @@ struct CORO_AWAIT_ELIDABLE task
     }
 };
 
+/** Binds a task to execute on a specific executor.
+
+    This function sets the executor for a task, causing it to run on the
+    specified executor rather than inheriting the caller's executor. When
+    awaited, the task will be posted to its bound executor instead of
+    executing inline via symmetric transfer.
+
+    @param ex The executor on which the task should run.
+    @param t The task to bind to the executor.
+
+    @return The same task, now bound to the specified executor.
+
+    @par Example
+    @code
+    co_await run_on(strand, some_task());
+    @endcode
+*/
 template<class Executor>
 task run_on(Executor const& ex, task t)
 {
@@ -477,6 +474,8 @@ task run_on(Executor const& ex, task t)
 }
 
 //----------------------------------------------------------
+
+namespace detail {
 
 template<class Executor>
 struct root_task
@@ -584,10 +583,35 @@ root_task<Executor> wrapper(task t)
     co_await t;
 }
 
+} // detail
+
+/** Starts a task for execution on an executor.
+
+    This function initiates execution of a task by posting it to the
+    specified executor's work queue. The task will begin running when
+    the executor processes the posted work item.
+
+    The task is "fire and forget" - it will self-destruct upon completion.
+    There is no mechanism to wait for the result or retrieve exceptions;
+    unhandled exceptions will call `std::terminate()`.
+
+    @param ex The executor on which to run the task.
+    @param t The task to execute.
+
+    @par Example
+    @code
+    io_context ioc;
+    async_run(ioc.get_executor(), my_coroutine());
+    ioc.run();
+    @endcode
+
+    @note The executor is captured by value to ensure it remains valid
+    for the duration of the task's execution.
+*/
 template<class Executor>
 void async_run(Executor ex, task t)
 {
-    auto root = wrapper<Executor>(std::move(t));
+    auto root = detail::wrapper<Executor>(std::move(t));
     root.h_.promise().ex_ = std::move(ex);
     root.h_.promise().starter_.h_ = root.h_;
     root.h_.promise().ex_.post(&root.h_.promise().starter_);

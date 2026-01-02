@@ -18,6 +18,7 @@ set(SOURCES
     bench.hpp
     bench_cb.hpp
     bench_co.hpp
+    bench_co_detail.hpp
 )
 
 add_executable(bench ${SOURCES})
