@@ -5,16 +5,12 @@
 
 ---
 
-# Affine Awaitables : Zero-Overhead Scheduler Affinity for the Rest of Us
+# Affine Awaitables : Zero-Overhead Scheduler Affinity
 
 ## Abstract
 
-This document describes a library-level extension to C++ coroutines that enables zero-overhead scheduler affinity for awaitables without requiring the full sender/receiver protocol. By introducing an `affine_awaitable` concept and a unified `resume_context` type, we achieve:
-
-1. Zero-allocation affinity for opt-in awaitables
-2. Transparent integration with P2300 senders
-3. Graceful fallback for legacy awaitables
-4. No language changes required
+This document proposes a minimal protocol for zero-overhead scheduler affinity in C++ coroutines. By introducing the `dispatcher` and
+`affine_awaitable` concepts, awaitables can opt into zero-allocation scheduler affinity without requiring the full sender/receiver protocol. The protocol is library-implementable today; standardization would bless the concepts and enable ecosystem-wide adoption.
 
 ---
 
@@ -29,9 +25,7 @@ task ui_handler() {               // Runs on UI thread
 }
 ```
 
-When `fetch()` completes, the network subsystem resumes our coroutine—but on the *network* thread, not the UI thread. The call to `update_ui()` races, crashes, or corrupts state.
-
-**This is the scheduler affinity problem:** after any `co_await`, how does a coroutine resume on its *home* scheduler?
+When `fetch()` completes, the network subsystem resumes our coroutine—but on the *network* thread, not the UI thread. The call to `update_ui()` races, crashes, or corrupts state. This is the scheduler affinity problem: after any `co_await`, how does a coroutine resume on its *home* scheduler?
 
 The challenge deepens when coroutines call other coroutines:
 
@@ -47,7 +41,7 @@ Every suspension point is an opportunity to get lost.
 
 ---
 
-## 2. Today's Solutions (and Their Costs)
+## 2. Today's Solutions, and Costs
 
 P3552 proposes coroutine tasks with scheduler affinity—ensuring a coroutine resumes on its designated scheduler after any `co_await`. Several approaches exist:
 
@@ -72,50 +66,42 @@ task ui_handler() {
 }
 ```
 
-**Problem:** Only works with P2300 senders. The vast ecosystem of awaitables (Asio, cppcoro, custom libraries) is excluded.
+**Problem:** Only works with P2300 senders, excluding the ecosystem of awaitables (Asio, custom libraries). This path makes unproven assumptions that senders will be ideal for all future, undiscovered use-cases.
 
 ### 2.3 Universal Trampoline
+
+Our helper `make_affine` wraps any awaitable in a coroutine to provide scheduler affinity. The trampoline awaits the non-affine awaitable, then dispatches the continuation through the caller's dispatcher. This enables scheduler affinity for awaitables that do not participate in the affine protocol. The reference implementation includes `[[clang::coro_await_elidable]]` to enable HALO optimization when possible; see [`make_affine.hpp`](https://github.com/cppalliance/wg21-papers/blob/master/affine-awaitables/make_affine.hpp).
+
+> **Note:** `make_affine` is not proposed for standardization. It is provided as an example implementation technique in the reference implementation. This proposal only standardizes the protocol itself (§4) and the concepts that detect it (§4.1, §4.2).
 
 ```cpp
 // Works with ANY awaitable
 auto data = co_await make_affine(fetch(), dispatcher);
 ```
 
-**Problem:** Allocates on every `co_await`. The trampoline coroutine handle escapes to the dispatcher, defeating HALO optimization.
+**Problem:** Typically allocates on every `co_await`. The trampoline coroutine handle escapes to the dispatcher, which may prevent HALO optimization from applying. HALO is unreliable across compilers.
 
 > **Note on HALO reliability:** Testing shows HALO is far more limited than often assumed. MSVC (19.50) does not implement HALO at all. Clang elides only the *outermost* coroutine frame; nested coroutines still allocate. The affine protocol provides the only *reliable* zero-allocation path. See the reference implementation's [HALO notes](https://github.com/vinniefalco/make_affine/blob/main/research/halo-notes.md) for detailed findings.
 
-### 2.4 The Gap
+### 2.4 Why This Matters Now
 
-| Approach | Works With | Allocation | HALO Reliable? |
-|----------|------------|------------|----------------|
-| `continues_on(sender, scheduler)` | Senders only | 0 | N/A |
-| `make_affine(awaitable, dispatcher)` | Any awaitable | 1 per `co_await` | No |
-| Nested coroutines (baseline) | Tasks | 1 per inner task | Clang only, outer frame only |
+P3552 (`std::execution::task`) is about to be standardized and makes significant assumptions about sender/receiver's universal applicability to asynchronous workloads. The framework has demonstrable value for GPU and parallel workloads, where its design strengths align with the problem domain. However, for CPU-bound I/O workloads such as networking, the committee has not yet explored the use case. Early studies by the authors suggest that sender APIs may not be optimal for networking's particular needs (see [coro-first-io.md](coro-first-io.md)).
 
-You either exclude most of the async ecosystem, or pay an allocation cost on every suspension point. And even without `make_affine`, nested coroutines allocate on every mainstream compiler.
+Our design is simpler, less risky, and provides a foundation upon which a standard task type can be built. The broader ecosystem which does not currently use senders, and future user code which may not need senders, would benefit from our proposal:
 
-**What if we could have universal compatibility AND zero overhead?**
-
-### 2.5 Why This Matters Now
-
-Twenty years of Boost.Asio. A decade of cppcoro. Countless custom awaitables in production codebases worldwide. This infrastructure *works*.
-
-P2300's sender/receiver framework represents a significant investment in async standardization. Like any new framework, it will prove itself through production use over time. Affine awaitables provide a hedge that costs nothing if senders succeed and provides value if adoption is gradual:
-
-**Ecosystem compatibility.** Boost.Asio has over 20 years of production deployment. Libraries like cppcoro, libcoro, folly::coro, and Bloomberg's Quantum power real systems today. Countless custom awaitables exist in proprietary codebases. These libraries represent proven, stable infrastructure that developers rely on. Affine awaitables let this ecosystem benefit from scheduler affinity without requiring conversion to senders—bridging the gap while the sender ecosystem matures.
+**Ecosystem compatibility.** Boost.Asio has active coroutine support. Libraries like libcoro, folly::coro, and Bloomberg's Quantum are actively maintained and power real systems today. Countless custom awaitables exist in proprietary codebases. These libraries represent proven, stable infrastructure that developers rely on. Affine awaitables let this infrastructure benefit from scheduler affinity without requiring conversion to the sender/receiver protocol.
 
 **Incremental adoption.** Not every codebase needs the full compositional power of senders. Many applications simply need coroutines that resume on the correct thread. The affine protocol (~10 lines) provides a lower barrier to entry than the full sender/receiver protocol (~100+ lines), allowing teams to adopt scheduler affinity immediately and evolve toward senders as their needs grow.
 
-**No-regret design.** Affine awaitables integrate seamlessly with P2300—senders flow through the same `await_transform` and receive optimal handling. If senders become ubiquitous, affine awaitables remain useful for custom awaitables and legacy integration. If sender adoption is slower than expected, affine awaitables ensure scheduler affinity is available today. Either way, the ecosystem benefits.
+**No-regret design.** Affine awaitables integrate seamlessly with P2300—senders flow through the same `await_transform` and receive optimal handling. Whether senders become ubiquitous or adoption is slower than expected, affine awaitables ensure scheduler affinity is available today and remain useful for custom awaitables and legacy integration.
 
-**Layered abstraction.** The dispatcher concept is more general than the scheduler concept—every scheduler can produce a dispatcher, but not every dispatcher requires the full sender protocol. This positions affine awaitables as a foundation that sender-based designs can build upon (see §11).
+**Layered abstraction.** The dispatcher concept is more general than the scheduler concept—every scheduler can produce a dispatcher, but not every dispatcher requires the full sender/receiver protocol. This positions affine awaitables as a foundation that sender-based designs can build upon (see §11).
 
 ---
 
-## 3. The Fix: One Parameter
+## 3. The Solution: One Parameter
 
-The allocation in `make_affine` happens because the awaitable doesn't know where to resume. It hands back control blindly, and a trampoline must intercept and redirect.
+The allocation in `make_affine` happens because it requires an extra coroutine (the trampoline) to intercept and redirect resumption. The awaitable doesn't know where to resume—it hands back control blindly, and the trampoline coroutine must be created to handle the dispatch, with whatever overhead that brings.
 
 The fix is simple: tell the awaitable where to resume.
 
@@ -124,7 +110,7 @@ The fix is simple: tell the awaitable where to resume.
 void await_suspend(std::coroutine_handle<> h);
 
 // Extended: awaitable knows the dispatcher
-void await_suspend(std::coroutine_handle<> h, Dispatcher& d);
+void await_suspend(std::coroutine_handle<> h, Dispatcher const& d);
 ```
 
 One additional parameter eliminates the allocation.
@@ -133,38 +119,59 @@ The awaitable receives the dispatcher and uses it directly:
 
 ```cpp
 template<typename Dispatcher>
-void await_suspend(std::coroutine_handle<> h, Dispatcher& d) {
-    start_async([h, &d] {
-        d(h);  // Resume through dispatcher
-    });
+auto await_suspend(std::coroutine_handle<> h, Dispatcher const& d) {
+    return d(h);  // Resume through dispatcher, return handle for symmetric transfer
 }
 ```
 
 No trampoline. No allocation. The awaitable handles affinity internally.
 
+### 3.1 Propagation
+
+However, `await_suspend(h, d)` only tells the awaitable how to be dispatched—it does not propagate affinity through nested coroutine chains. Consider:
+
+```cpp
+task<int> outer() {
+    auto result = co_await inner();  // inner() is also a task
+    co_return result;
+}
+
+task<int> inner() {
+    auto data = co_await fetch();  // Resumes on unknown context
+    co_return data;
+}
+```
+
+If `inner()` is a coroutine task that doesn't implement the propagation rules, affinity is lost when `inner()` awaits other operations. The `fetch()` operation completes and resumes `inner()` on an unknown context, breaking the affinity chain. Our proposal includes guidance for propagating affinity that does not require any additional standard library support. It is a set of rules that awaitable authors can follow to propagate affinity at zero cost for any affine awaitable. By offering rules instead of standardese, authors have flexibility in implementation (see §4.4).
+
 ---
 
-## 4. The Affine Protocol
+## 4. The Affine Awaitable Protocol
 
-The protocol outlined in this paper gives authors tools to solve two aspects of the lost context problem:
+The protocol outlined in this section gives authors tools to solve both aspects of the lost context problem: awaitable affinity, and affinity propagation.
 
 - **As an Awaitable**: You implement the protocol to respect the Caller's affinity (resume them where they want).
 
 - **As a Task Type**: You implement the promise logic to enforce Your affinity (resume yourself where you want).
 
-> The formal specification of the Affine Awaitable Protocol is here:  
-> https://github.com/vinniefalco/make_affine/blob/master/affine-protocol.md
-
 This protocol is fully implementable as a library today; standardization would bless the concepts and reduce boilerplate, without requiring `std::execution::task`. Dispatchers can also carry extra policy (e.g., priority save/restore) without affecting the core protocol.
 
-### 4.1 Concepts
+### 4.1 Dispatcher Concept
 
-A **dispatcher** accepts a coroutine handle for resumption:
+A **dispatcher** accepts a coroutine handle for resumption and returns a coroutine handle for symmetric transfer:
 
 ```cpp
 template<typename D, typename P = void>
-concept dispatcher = requires(D d, std::coroutine_handle<P> h) { d(h); };
+concept dispatcher = requires(D const& d, std::coroutine_handle<P> h) {
+    { d(h) } -> std::convertible_to<std::coroutine_handle<>>;
+};
 ```
+
+*Remarks:* The dispatcher must return a `std::coroutine_handle<>` (or convertible type) to enable symmetric transfer. Calling `d(h)` schedules `h` for resumption (typically on a specific execution context) and returns a coroutine handle that the caller may use for symmetric transfer. The dispatcher must be const-callable (logical constness), enabling thread-safe concurrent dispatch from multiple coroutines. Since `std::coroutine_handle<P>` has `operator()` which invokes `resume()`, the handle itself is callable and can be dispatched directly.
+
+*Lifetime:* In `await_suspend`, the dispatcher is received by const lvalue reference. The callee treats it as *borrowed for the duration of the await* (do not retain past completion). Ownership and lifetime are the caller's responsibility. The caller may store the dispatcher by value (if owning) or by pointer/reference (if externally owned) but must present it to callees as a const lvalue reference.
+
+### 4.2 Affine Awaitable Concept
 
 An awaitable is *affine* if it accepts a dispatcher in `await_suspend`:
 
@@ -172,558 +179,317 @@ An awaitable is *affine* if it accepts a dispatcher in `await_suspend`:
 template<typename A, typename D, typename P = void>
 concept affine_awaitable =
     dispatcher<D, P> &&
-    requires(A a, std::coroutine_handle<P> h, D& d) {
+    requires(A a, std::coroutine_handle<P> h, D const& d) {
         a.await_suspend(h, d);
     };
 ```
 
-### 4.2 Awaiter Adapter
+*Remarks:* This concept detects awaitables that participate in the affine protocol by providing the extended `await_suspend(h, d)` overload. The dispatcher is passed by const lvalue reference, and the awaitable must use it to resume the caller.
 
-This adapter is applied by the caller’s `await_transform` to affine awaitables (those with `await_suspend(h, d)`), injecting the caller’s dispatcher while keeping the standard awaiter shape.
-To bridge the standard coroutine machinery to the extended protocol, we wrap affine awaitables:
+### 4.3 Awaitable Requirements (callee role)
 
-```cpp
-template<typename Awaitable, typename Dispatcher>
-struct affine_awaiter {
-    Awaitable awaitable_;
-    Dispatcher* dispatcher_;
-
-    bool await_ready() { 
-        return awaitable_.await_ready(); 
-    }
-
-    auto await_suspend(std::coroutine_handle<> h) {
-        return awaitable_.await_suspend(h, *dispatcher_);
-    }
-
-    decltype(auto) await_resume() { 
-        return awaitable_.await_resume(); 
-    }
-};
-
-template<typename A, typename D>
-affine_awaiter(A&&, D*) -> affine_awaiter<A, D>;
-```
-
-### 4.3 Opting In
-
-Library authors add a single overload—roughly 10 lines:
+An awaitable **participates in the affinity protocol** if it provides an overload:
 
 ```cpp
-struct my_async_op {
-    bool await_ready() { return false; }
-
-    // Standard overload (for non-affine contexts)
-    void await_suspend(std::coroutine_handle<> h) {
-        start_async([h] { h.resume(); });
-    }
-
-    // Extended overload (for affine contexts)
-    template<typename Dispatcher>
-    void await_suspend(std::coroutine_handle<> h, Dispatcher& d) {
-        start_async([h, &d] {
-            d(h);
-        });
-    }
-
-    int await_resume() { return result_; }
-};
+template<class Dispatcher>
+auto await_suspend(std::coroutine_handle<> h, Dispatcher const& d) {
+    return d(h);  // Possible implementation: resume caller via dispatcher, return handle for symmetric transfer
+}
 ```
+
+Semantics:
+- The awaitable must use the dispatcher `d` to resume the caller, e.g. `return d(h);`.
+- The dispatcher returns a coroutine handle that `await_suspend` may return for symmetric transfer.
+- It may run its own work on any context; only resumption must use `d`.
+
+### 4.4 Task/Promise Requirements (caller role)
+
+A task type (its promise) **propagates affinity** if it:
+
+1) **Stores the caller's dispatcher.**  
+   - Provides a way to set/hold a dispatcher instance for the lifetime of the promise.
+
+2) **Forwards the dispatcher on every await.**  
+   - In `await_transform`, when awaiting `A`, pass the stored dispatcher to the awaited object via an affine awaiter:
+     ```cpp
+     // dispatcher_handle: whatever you store for the caller's dispatcher (pointer or reference)
+     return affine_awaiter{std::forward<Awaitable>(a), dispatcher_handle};
+     ```
+   - The callee receives it as `Dispatcher const&` in `await_suspend(h, d)`.
+   - If `A` is not affine and you still want affinity, wrap it (e.g. `make_affine(A, dispatcher)`) or reject it at compile time.
+
+3) **Provides both await paths for its own awaitability.**  
+   - `await_suspend(caller)` (legacy, no dispatcher available).
+   - `await_suspend(caller, dispatcher)` (affine, dispatcher available) that stores dispatcher + continuation before resuming the task's coroutine.
+
+   In the affine path, `await_suspend(caller, d)` typically:
+   - Stores the continuation handle (caller) and the dispatcher `d` in the promise, then
+   - Returns the task's coroutine handle to start execution, enabling later forwarding (via `await_transform`) and final resumption via the stored dispatcher.
+
+4) **Final resumption uses the dispatcher when set.**  
+   - In `final_suspend`, if a dispatcher is stored, resume the continuation via that dispatcher; otherwise use direct symmetric transfer.
+
+### 4.5 Propagation Rule
+
+- The dispatcher is set once at the top-level task (e.g., `run_on(ex, task)`).
+- Each `co_await` forwards the same dispatcher to the awaited object.
+- Any awaited object that implements `await_suspend(h, d)` uses that dispatcher to resume its caller, preserving affinity through arbitrary nesting.
+- If an awaited object is non-affine and not adapted, affinity may be lost at that point. A trampoline (e.g., `make_affine`) can restore it; alternatively, implementations may reject non-affine awaits at compile time.
 
 ---
 
-## 5. Bridging Two Worlds
+## 5. Non-normative: Implementation Examples
 
-P2300 senders need *schedulers*. Awaitables need *callables*. How do we serve both?
+The protocol defined in §4 can be implemented entirely as a library. This section describes helper types and patterns that implement the protocol, but **these are not part of this proposal**. They are provided for illustration and to demonstrate that the protocol is implementable.
 
-### 5.1 The Unified Resume Context
+**Note:** The helper types in the reference implementation (`affine_promise`, `affine_task`, `affine_awaiter`, `make_affine`) are convenience implementations of this protocol. They are not the protocol itself. Zero-allocation across the chain requires awaited objects to be affine (or adapted with a zero-alloc awaiter).
 
-A single type that is both callable (for awaitables) and provides scheduler access (for senders):
+### 5.1 affine_awaiter
 
-```cpp
-template<typename Scheduler>
-class resume_context {
-    Scheduler* sched_;
-
-public:
-    explicit resume_context(Scheduler& s) noexcept : sched_(&s) {}
-
-    // Dispatcher interface: callable with continuation
-    template<typename F>
-    void operator()(F&& f) const {
-        sched_->dispatch(std::forward<F>(f));
-    }
-
-    // Scheduler interface: access underlying scheduler
-    Scheduler& scheduler() const noexcept {
-        return *sched_;
-    }
-};
-```
-
-### 5.2 Usage Patterns
-
-This enables uniform handling:
-
-- `continues_on(sender, ctx.scheduler())` — uses scheduler interface
-- `affine_awaiter{awaitable, &ctx}` — uses callable interface
-- `make_affine(awaitable, ctx)` — uses callable interface
-
-One context type. Three dispatch paths. Zero friction.
-
----
-
-## 6. Three Tiers, One `await_transform`
-
-### 6.1 Architecture
-
-```
-                    ┌─────────────────────────┐
-                    │     resume_context      │
-                    │ (Scheduler + Callable)  │
-                    └───────────┬─────────────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-        ▼                       ▼                       ▼
-   ┌─────────┐          ┌──────────────┐         ┌───────────┐
-   │ Sender  │          │   Affine     │         │  Legacy   │
-   │         │          │  Awaitable   │         │ Awaitable │
-   └────┬────┘          └──────┬───────┘         └─────┬─────┘
-        │                      │                       │
-        ▼                      ▼                       ▼
-  continues_on            affine_awaiter          make_affine
-                                                  (trampoline)
-        │                      │                       │
-        └──────────┬───────────┘                       │
-                   ▼                                   ▼
-            Zero Allocation                      One Allocation
-```
-
-### 6.2 Path Selection
-
-The promise's `await_transform` selects the optimal path based on awaitable type:
+Used in `await_transform` to wrap affine awaitables and inject the dispatcher:
 
 ```cpp
 template<typename Awaitable>
 auto await_transform(Awaitable&& a) {
     using A = std::remove_cvref_t<Awaitable>;
-
-    if constexpr (std::execution::sender<A>) {
-        // Tier 1: Sender — use continues_on with scheduler
-        return std::execution::as_awaitable(
-            std::execution::continues_on(
-                std::forward<Awaitable>(a),
-                dispatcher_->scheduler()),
-            *this);
-    }
-    else if constexpr (affine_awaitable<A, context_type>) {
-        // Tier 2: Affine awaitable — zero overhead
+    
+    if constexpr (affine_awaitable<A, Dispatcher>) {
         return affine_awaiter{
-            std::forward<Awaitable>(a), dispatcher_};
+            std::forward<Awaitable>(a), &dispatcher_};
     }
-    else {
-        // Tier 3: Legacy awaitable — trampoline fallback
-        return make_affine(
-            std::forward<Awaitable>(a), *dispatcher_);
-    }
+    // ... handle other cases
 }
 ```
 
-This design follows the C++ tradition of making the widest range of programs work correctly, including existing code. Senders get optimal handling, modern awaitables opt into zero overhead, and legacy awaitables continue to function without modification.
+### 5.2 resume_context
 
----
-
-## 7. Migration Strategy and Strict Mode
-
-The tiered approach in §6 prioritizes maximum compatibility. However, some use cases demand compile-time guarantees. This section shows how the same affine primitives support both strategies—and how to migrate between them.
-
-### 7.1 Non-Breaking Overload Addition
-
-*(Tiered = accepts legacy via trampoline; Strict = rejects non-affine, zero-alloc guarantee.)*
-
-**Key insight:** Adding `await_suspend(h, d)` alongside an existing `await_suspend(h)` is completely non-breaking.
+Unifies dispatcher and scheduler interfaces, enabling both awaitable and sender paths:
 
 ```cpp
-struct network_read {
-    // Existing overload — unchanged, continues to work everywhere
-    void await_suspend(std::coroutine_handle<> h) {
-        start_async([h] { h.resume(); });
-    }
+resume_context<MyScheduler> ctx{scheduler};
 
-    // New overload — enables zero-alloc affinity in affine contexts
-    template<typename Dispatcher>
-    void await_suspend(std::coroutine_handle<> h, Dispatcher& d) {
-        start_async([h, &d] {
-            d(h);
-        });
-    }
-    
-    bool await_ready() { return false; }
-    int await_resume() { return result_; }
-};
+// Use as dispatcher for awaitables
+co_await some_awaitable;  // ctx passed via affine_awaiter
+
+// Use as scheduler for senders
+auto sender = continues_on(some_sender, ctx.scheduler());
 ```
 
-**What this means in practice:**
+### 5.3 affine_promise
 
-| Context | Overload Selected | Behavior |
-|---------|------------------|----------|
-| Non-affine coroutine | `await_suspend(h)` | Works as before |
-| Tiered affine task | `await_suspend(h, d)` | Zero allocation |
-| Strict affine task | `await_suspend(h, d)` | Zero allocation |
-
-Existing code calling `co_await network_read{}` in a plain coroutine continues to compile and run identically. The new overload only activates when an affine-aware task invokes it through `affine_awaiter`.
-
-### 7.2 Strict Mode: Compile-Time Enforcement
-
-For use cases requiring guaranteed zero allocation, constrain `await_transform` to reject non-affine awaitables:
+CRTP mixin for promise types, providing dispatcher storage and affinity-aware `final_suspend`:
 
 ```cpp
-template<typename Awaitable>
-auto await_transform(Awaitable&& a) {
-    using A = std::remove_cvref_t<Awaitable>;
-
-    if constexpr (std::execution::sender<A>) {
-        // Senders: optimal path via continues_on
-        return std::execution::as_awaitable(
-            std::execution::continues_on(
-                std::forward<Awaitable>(a),
-                dispatcher_->scheduler()),
-            *this);
-    }
-    else {
-        // Strict: ONLY affine awaitables accepted
-        static_assert(affine_awaitable<A, context_type>,
-            "Strict mode: awaitable must satisfy affine_awaitable<A, Dispatcher>. "
-            "Add await_suspend(handle, dispatcher) overload or use a sender.");
-        
-        return affine_awaiter{
-            std::forward<Awaitable>(a), dispatcher_};
-    }
-}
-```
-
-**Compile-time guarantee:** If it compiles, every `co_await` is zero-allocation.
-
-### 7.3 Tiered vs. Strict: Same Primitives, Different Policies
-
-| Policy | `await_transform` Behavior | Use Case |
-|--------|---------------------------|----------|
-| **Tiered** (§6) | Accept all; optimize what we can | Library adoption, gradual migration |
-| **Strict** (§7.2) | Reject non-affine at compile time | Performance-critical systems, embedded |
-
-Both modes use identical primitives:
-- Same `affine_awaitable` concept
-- Same `affine_awaiter` adapter
-- Same `await_suspend(h, d)` protocol
-
-The only difference is the `await_transform` constraint. This means:
-
-1. **Libraries target one protocol.** Implementing `await_suspend(h, d)` works for both modes.
-2. **Applications choose their policy.** Tiered for flexibility, strict for guarantees.
-3. **Migration is mechanical.** Remove the `make_affine` fallback tier → strict mode.
-
-### 7.4 Gradual Library Evolution
-
-**Coroutine task maintainers:** add dispatcher storage + affine `await_transform` (tiered or strict); expose both await paths.
-
-**Awaitable library maintainers:** add `await_suspend(h, d)`; legacy callers keep working; affine callers get zero-alloc.
-
-The affine protocol enables a clear migration path:
-
-```
-Phase 1: Library works everywhere (status quo)
-         └─ Only await_suspend(h) exists
-         └─ Affine tasks use make_affine fallback (1 alloc)
-
-Phase 2: Library adds affine overload (non-breaking)
-         └─ Both await_suspend(h) and await_suspend(h, d) exist
-         └─ Non-affine callers: unchanged behavior
-         └─ Affine callers: zero allocation
-
-Phase 3: Library deprecates legacy overload (optional)
-         └─ Only await_suspend(h, d) remains
-         └─ Strict-mode tasks: compile-time guarantee
-         └─ Legacy callers: compile error with clear message
-```
-
-**Phase 2 is the key transition.** It's additive, non-breaking, and immediately provides zero-allocation benefits to affine callers while maintaining backward compatibility.
-
-### 7.5 Migration Tool, Not Just Detection
-
-The `affine_awaitable` concept serves dual purposes:
-
-**Detection (Tiered Mode):**
-```cpp
-if constexpr (affine_awaitable<A, D>) {
-    // Optimize: zero allocation
-} else {
-    // Fallback: make_affine trampoline
-}
-```
-
-**Enforcement (Strict Mode):**
-```cpp
-static_assert(affine_awaitable<A, D>,
-    "Zero-allocation guarantee requires affine awaitable");
-```
-
-This duality makes the concept a **migration tool**:
-
-1. Start with tiered mode to identify which awaitables need upgrading
-2. Upgrade awaitables incrementally (each upgrade is non-breaking)
-3. When all awaitables are affine, switch to strict mode
-4. Enjoy compile-time zero-allocation guarantees
-
-The concept doesn't change—only the policy around it.
-
----
-
-## 8. Building Affine Tasks
-
-To simplify task implementation, we provide CRTP mixins that handle the dispatcher plumbing.
-
-### 8.1 Promise Mixin
-
-The `affine_promise` CRTP base provides:
-- `set_continuation(h)` — stores the caller's handle
-- `set_dispatcher(d)` — stores the dispatcher for affinity
-- `final_suspend()` — resumes continuation through dispatcher if set
-
-> `await_transform` policy (tiered vs. strict) is intentionally left to the task author; you can implement it inline or with a small helper/mixin to select between tiered (fallback trampoline) and strict (compile-time rejection).
-
-```cpp
-template<typename Derived, typename Dispatcher>
-class affine_promise {
-protected:
-    std::coroutine_handle<> continuation_;
-    Dispatcher* dispatcher_ = nullptr;
-    
-public:
-    void set_continuation(std::coroutine_handle<> h) noexcept;
-    void set_dispatcher(Dispatcher& d) noexcept;
-    auto final_suspend() noexcept;  // Dispatches continuation if dispatcher set
-};
-```
-
-### 8.2 Task Mixin
-
-The `affine_task` CRTP base provides both `await_suspend` overloads:
-
-```cpp
-template<typename T, typename Derived, typename Dispatcher>
-class affine_task {
-public:
-    bool await_ready() const noexcept;
-    
-    // Legacy: non-affine callers
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept;
-    
-    // Affine: receives dispatcher from caller
-    template<typename D>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller, D& d) noexcept;
-    
-    decltype(auto) await_resume();
-};
-```
-
-See the [reference implementation](https://github.com/vinniefalco/make_affine) for complete code.
-
-### 8.3 Example: Complete Task Type
-
-```cpp
-using pool_context = resume_context<pool_scheduler>;
-
-template<typename T = void>
-class task : public affine_task<T, task<T>, pool_context>
+struct promise_type
+    : public affine_promise<promise_type, Dispatcher>
 {
-public:
-    struct promise_type : affine_promise<promise_type, pool_context>
-    {
-        // User provides: initial_suspend, return_value, result, get_return_object
-        // Mixin provides: final_suspend, set_dispatcher, set_continuation
+    // User provides: initial_suspend, return_value, result, get_return_object
+    // Mixin provides: final_suspend, set_dispatcher, set_continuation
+};
+```
+
+### 5.4 affine_task
+
+CRTP mixin for task types, providing both `await_suspend` overloads:
+
+```cpp
+template<typename T>
+class task
+    : public affine_task<T, task<T>, Dispatcher>
+{
+    // Mixin provides: await_ready, await_suspend (both overloads), await_resume
+};
+```
+
+### 5.5 make_affine
+
+Used in `await_transform` as fallback for non-affine awaitables, or directly in tasks:
+
+```cpp
+// In await_transform
+if constexpr (!affine_awaitable<A, Dispatcher>) {
+    return make_affine(std::forward<Awaitable>(a), dispatcher_);
+}
+
+// Or directly in a task
+task<int> my_task() {
+    legacy_awaitable op;
+    auto result = co_await make_affine(op, get_dispatcher());
+    co_return result;
+}
+```
+
+### 5.6 Reference Implementation
+
+A complete reference implementation demonstrating the protocol, including the helpers described above, is available at:
+
+https://github.com/cppalliance/wg21-papers/edit/master/affine-awaitables
+
+---
+
+## 6. Benefits
+
+**Zero-Overhead Affinity**
+
+Both P2300 senders and affine awaitables achieve zero allocation per `co_await`—crucially, without depending on HALO. However, senders require conversion of the entire awaitable ecosystem (~100+ lines per awaitable, high expertise with the sender/receiver protocol), while affine awaitables work with existing awaitables through a single overload (~10 lines, low expertise). Legacy awaitables that don't participate in the protocol lose affinity entirely, while `make_affine` provides a fallback for foreign awaitables.
+
+**Mitigating Risk**
+
+While senders demonstrate clear value for GPU and parallel workloads, networking represents an unexplored use case in committee discussions. Early studies suggest sender APIs may not align optimally with networking's particular needs—high-frequency, low-latency I/O operations with different composition patterns than parallel algorithms (see [coro-first-io.md](coro-first-io.md)). Adopting senders as the sole path commits the ecosystem to an unproven design for networking workloads. Affine awaitables provide a proven, minimal foundation that works today and remains valuable regardless of sender adoption outcomes, offering lower risk for networking applications.
+
+**Implementation Trade-offs**
+
+The affine protocol provides zero-overhead affinity with minimal implementation burden, making it accessible to the entire awaitable ecosystem. Senders offer pipe composition but require ecosystem conversion; affine awaitables provide affinity propagation without requiring conversion. Both approaches require opt-in, but affine awaitables integrate seamlessly with existing code—Boost.Asio, libcoro, folly::coro, and countless custom awaitables can adopt the protocol incrementally. The minimal cost (~10 lines per awaitable) enables immediate adoption while preserving flexibility for future evolution toward senders if desired.
+
+**Incremental Adoption Path**
+
+The protocol enables incremental adoption:
+
+1. **Library authors:** Add `await_suspend(h, dispatcher)` overload to existing awaitables. This is non-breaking—existing code continues to work, and affine-aware tasks gain zero-allocation affinity.
+
+2. **Task authors:** Implement the protocol requirements (§4.4) in their promise types to propagate affinity through `co_await` chains.
+
+3. **Foreign awaitables:** For awaitables that cannot be modified (third-party libraries, legacy code), authors can use `make_affine` to opt them into scheduler affinity. This tradeoff may be acceptable when the awaitable is infrequently used or when scheduler affinity is more valuable than the allocation cost.
+
+4. **Ecosystem evolution:** As more awaitables adopt the protocol, the benefits compound. Libraries can choose to require affine awaitables (rejecting non-affine at compile time) or accept non-affine awaitables with appropriate fallbacks.
+
+The protocol is minimal (~10 lines per awaitable), library-implementable, and provides a clear migration path from today's awaitable ecosystem to zero-overhead scheduler affinity.
+
+> **Note (non-normative):** Future awaitables added to the standard library should implement the affine awaitable protocol to enable zero-overhead scheduler affinity. This ensures that standard library awaitables work optimally with scheduler-affine task types.
+
+### 6.1 Implementation Patterns (Non-Normative)
+
+The `affine_awaitable` concept enables multiple implementation patterns, allowing library authors to choose the policy that best fits their use case. This section describes non-normative implementation guidance.
+
+#### 6.1.1 Non-Breaking Overload Addition
+
+Adding `await_suspend(h, d)` alongside existing `await_suspend(h)` is completely non-breaking. The compiler automatically selects the appropriate overload based on availability:
+
+| Context | Awaitable Type | Overload Selected |
+|---------|---------------|-------------------|
+| Legacy awaitable (only `await_suspend(h)`) | Non-affine | `await_suspend(h)` (legacy path) |
+| Affine awaitable (both overloads) | Affine | `await_suspend(h, d)` (affine path) |
+| Legacy code awaiting affine awaitable | Affine | `await_suspend(h)` (backward compatible) |
+| Affine-aware code awaiting legacy awaitable | Non-affine | `await_suspend(h)` (fallback to legacy) |
+
+This ensures that existing code continues to work unchanged, while new affine-aware code can opt into zero-allocation affinity.
+
+#### 6.1.2 Tiered vs. Strict: Same Primitives, Different Policies
+
+The `affine_awaitable` concept enables two distinct usage patterns with the same primitives:
+
+| Approach | Policy | Use Case |
+|----------|--------|----------|
+| **Tiered** | Accept all, optimize what we can | Library adoption, gradual migration |
+| **Strict** | Reject non-affine at compile time | Performance-critical systems, embedded |
+
+Both approaches use the same `affine_awaitable` concept and protocol—the difference is in the policy enforced by `await_transform`:
+
+**Tiered mode** uses `if constexpr` to detect affine awaitables and fall back to `make_affine` for non-affine ones:
+
+```cpp
+template<typename Awaitable>
+auto await_transform(Awaitable&& a) {
+    using A = std::remove_cvref_t<Awaitable>;
+    if constexpr (affine_awaitable<A, Dispatcher>) {
+        return affine_awaiter{std::forward<Awaitable>(a), &dispatcher_};
+    } else {
+        return make_affine(std::forward<Awaitable>(a), dispatcher_);
+    }
+}
+```
+
+**Strict mode** uses `static_assert` to reject non-affine awaitables at compile time:
+
+```cpp
+template<affine_awaitable<Dispatcher> A>
+auto await_transform(A&& a) {
+    return affine_awaiter{std::forward<A>(a), &dispatcher_};
+}
+
+template<typename A>
+auto await_transform(A&& a) {
+    static_assert(affine_awaitable<std::remove_cvref_t<A>, Dispatcher>,
+                  "Only affine awaitables are accepted in strict mode");
+    return affine_awaiter{std::forward<A>(a), &dispatcher_};
+}
+```
+
+#### 6.1.3 Gradual Library Evolution
+
+The concept serves as a migration tool with three phases:
+
+**Phase 1: Status quo**
+- Works everywhere
+- 1 allocation fallback for non-affine awaitables via `make_affine`
+
+**Phase 2: Add affine overload**
+- Non-breaking addition of `await_suspend(h, d)` to existing awaitables
+- Zero-allocation for affine callers
+- Legacy callers continue to work unchanged
+
+**Phase 3: Remove legacy overload**
+- Compile-time enforcement via `static_assert`
+- Zero-allocation guarantee across the entire chain
+- Requires all awaitables in the chain to be affine
+
+This phased approach allows libraries to migrate incrementally without breaking existing code.
+
+#### 6.1.4 Example: Strict-Mode Task
+
+A complete `strict_task` implementation demonstrating compile-time enforcement:
+
+```cpp
+template<typename T>
+class strict_task {
+    struct promise_type {
+        Dispatcher const* dispatcher_ = nullptr;
         
-        template<typename Awaitable>
-        auto await_transform(Awaitable&& a) {
-            // Three-tier dispatch as shown above (tiered policy)
-            // A strict policy would replace the fallback with static_assert
+        template<affine_awaitable<Dispatcher> A>
+        auto await_transform(A&& a) {
+            return affine_awaiter{std::forward<A>(a), dispatcher_};
         }
+        
+        template<typename A>
+        auto await_transform(A&& a) {
+            static_assert(affine_awaitable<std::remove_cvref_t<A>, Dispatcher>,
+                          "strict_task only accepts affine awaitables");
+            // Unreachable, but satisfies return type requirement
+            return affine_awaiter{std::forward<A>(a), dispatcher_};
+        }
+        
+        // ... rest of promise implementation
     };
     
-    using handle_type = std::coroutine_handle<promise_type>;
-    
-    handle_type handle() const { return handle_; }
-    
-    void set_scheduler(pool_scheduler& sched) {
-        handle_.promise().set_dispatcher(pool_context{sched});
-    }
-
-private:
-    handle_type handle_;
+    // ... rest of task implementation
 };
 ```
+
+This ensures that any attempt to `co_await` a non-affine awaitable in a `strict_task` results in a compile-time error, providing a hard guarantee of zero allocations.
+
+#### 6.1.5 Migration Tool, Not Just Detection
+
+The concept serves a dual purpose that should be explicitly recognized:
+
+**Detection (tiered mode)**: `if constexpr` selection
+- Detects whether an awaitable is affine at compile time
+- Falls back to `make_affine` for non-affine awaitables
+- Enables gradual migration and library compatibility
+
+**Enforcement (strict mode)**: `static_assert` guarantee
+- Rejects non-affine awaitables at compile time
+- Provides hard zero-allocation guarantee
+- Enables performance-critical and embedded use cases
+
+The same `affine_awaitable` concept enables both patterns—it's not just about detection, but about providing a migration path from today's ecosystem to zero-overhead scheduler affinity.
 
 ---
 
-## 9. The Full Picture
-
-### 9.1 Allocation Overhead
-
-| Awaitable Type | Mechanism | Allocations per `co_await` |
-|----------------|-----------|---------------------------|
-| P2300 Sender | `continues_on` | 0 |
-| Affine awaitable | `affine_awaiter` | 0 |
-| Legacy | `make_affine` | 1 |
-
-**Crucially, the zero-allocation paths do not depend on HALO.**
-
-### 9.2 Implementation Complexity
-
-| Approach | Lines to Implement | Expertise Required |
-|----------|-------------------|-------------------|
-| Full Sender | ~100+* | High (S/R protocol) |
-| Affine awaitable | ~10 | Low (one overload) |
-| Legacy (no change) | 0 | None |
-
-*Based on P3552R3 §9.4.5 `promise_type` specification.
-
-### 9.3 Feature Matrix
-
-| Feature | Sender | Affine Awaitable | Legacy |
-|---------|--------|------------------|--------|
-| Zero allocation | Yes | Yes | No |
-| Composable (pipe) | Yes | No | No |
-| Works with any task | Yes | Yes | Yes |
-| Opt-in required | Yes | Yes | No |
-| Standard today | P2300 | This proposal | Library |
-
----
-
-## 10. Adoption Path
-
-### 10.1 Migration Story
-
-```
-Legacy Awaitable ───────▶ Affine Awaitable ───────▶ Full Sender
-   (works today)            (add 1 overload)         (full protocol)
-   (1 alloc/await)          (zero overhead)          (composable)
-```
-
-### 10.2 Incremental Adoption
-
-1. **Immediate compatibility:** Legacy awaitables work via `make_affine` with no code changes.
-2. **Optimization:** Add `await_suspend(h, dispatcher)` overload for zero allocation overhead.
-3. **Full composition:** Evolve to senders when pipe-style composition is needed.
-
-Libraries can adopt at their own pace. Users benefit from scheduler affinity immediately.
-
----
-
-## 11. Foundational Analysis
-
-This section demonstrates that affine awaitables represent a more fundamental abstraction than P3552's sender-only approach, and that P3552's `task` can be built upon this foundation.
-
-### 11.1 The Abstraction Hierarchy
-
-A **dispatcher** is simply a callable that accepts a coroutine handle:
-
-```cpp
-template<typename D, typename P = void>
-concept dispatcher = requires(D d, std::coroutine_handle<P> h) {
-    d(h);  // Schedule coroutine for resumption
-};
-```
-
-Since `std::coroutine_handle<>` has `operator()` which calls `resume()`, the handle itself is callable and can be dispatched directly.
-
-A **scheduler** (P2300) requires the full sender protocol:
-
-```cpp
-concept scheduler = requires(Sch sch) {
-    { schedule(sch) } -> sender;  // Returns a sender with completion signatures
-};
-```
-
-The relationship is asymmetric:
-
-```
-                    ┌─────────────────────┐
-                    │     Dispatcher      │
-                    │ (callable concept)  │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-              ▼                ▼                ▼
-       ┌──────────┐     ┌──────────┐     ┌──────────┐
-       │ Scheduler│     │ Executor │     │ Simple   │
-       │ (P2300)  │     │ (legacy) │     │ Callable │
-       └──────────┘     └──────────┘     └──────────┘
-```
-
-**Every scheduler can produce a dispatcher.** The `resume_context` type demonstrates this:
-
-```cpp
-template<typename Scheduler>
-class resume_context {
-    void operator()(F&& f) const { sched_->dispatch(f); }  // Dispatcher interface
-    Scheduler& scheduler() const { return *sched_; }       // Scheduler access
-};
-```
-
-**But not every dispatcher is a scheduler.** A simple thread pool with `post(f)` is a dispatcher but may not implement the full sender protocol.
-
-### 11.2 Zero-Cost Subsumption
-
-The affine approach handles every case P3552 handles, plus more, at equal or lower cost:
-
-| Awaitable Type | P3552 Path | Affine Path | Cost Delta |
-|----------------|------------|-------------|------------|
-| P2300 Sender | `affine_on` + `as_awaitable` | `continues_on` + `as_awaitable` | **0** |
-| Affine awaitable | ✗ Not supported | `affine_awaiter` | **N/A → 0** |
-| Legacy awaitable | ✗ Not supported | `make_affine` | **N/A → 1 alloc** |
-| Task awaiting Task | Full sender machinery | `affine_awaiter` | **Overhead → 0** |
-
-The sender path is *identical*—both use `continues_on`/`affine_on` to maintain affinity. The affine approach simply adds two additional paths that P3552 cannot support.
-
-### 11.3 Integration with P3552
-
-P3552's `promise_type` specifies ~100 lines of scheduler-affinity machinery inline. With affine awaitables as a foundation:
-
-```cpp
-class promise_type 
-    : public affine_promise<promise_type, task_context>  // Provides final_suspend
-    , public with_awaitable_senders<promise_type>        // Existing CRTP
-{
-    // Task-specific: error/result storage, allocator, environment queries
-};
-```
-
-Building P3552's `task` on affine awaitables would provide:
-
-1. **Ecosystem support.** Non-sender awaitables (Asio, cppcoro, custom) gain scheduler affinity.
-2. **Task-to-task optimization.** When one `task` awaits another, the `affine_awaiter` path avoids the full sender machinery.
-3. **Cleaner factoring.** The mixins become building blocks for any scheduler-affine coroutine.
-4. **Incremental adoption.** Libraries can start with ~10 lines and evolve to full senders later.
-
-### 11.4 Relationship to P3552
-
-The affine awaitable abstraction complements and extends P3552:
-
-1. Senders are handled via the same `continues_on` path P3552 uses
-2. Affine awaitables add a zero-overhead path for non-sender awaitables
-3. Legacy awaitables gain affinity through the `make_affine` fallback
-4. The dispatcher concept generalizes the scheduler concept
-
-This positions affine awaitables as a foundation that P3552's `task` could build upon, rather than a competing approach.
-
----
-
-## 12. Proposed Wording
+## 7. Proposed Wording
 
 *Relative to N4981.*
 
-### 12.1 Header `<coroutine>` synopsis
+### 7.1 Header `<coroutine>` synopsis
 
 Add to the `<coroutine>` header synopsis:
 
@@ -731,176 +497,50 @@ Add to the `<coroutine>` header synopsis:
 namespace std {
   // [coroutine.affine.dispatcher], dispatcher concept
   template<class D, class P = void>
-    concept dispatcher = see below;
+    concept dispatcher = see-below;
 
   // [coroutine.affine.concept], affine awaitable concept
   template<class A, class D, class P = void>
-    concept affine_awaitable = see below;
-
-  // [coroutine.affine.awaiter], affine awaiter
-  template<class Awaitable, class Dispatcher>
-    struct affine_awaiter;
-
-  // [coroutine.affine.context], resume context
-  template<class Scheduler>
-    class resume_context;
-
-  // [coroutine.affine.promise], affine promise mixin
-  template<class Derived, class Dispatcher>
-    class affine_promise;
-
-  // [coroutine.affine.task], affine task mixin
-  template<class T, class Derived, class Dispatcher>
-    class affine_task;
-
-  // [coroutine.affine.trampoline], affine trampoline fallback
-  template<class Awaitable, class Dispatcher>
-    auto make_affine(Awaitable&& awaitable, Dispatcher& dispatcher);
+    concept affine_awaitable = see-below;
 }
 ```
 
-### 12.2 Dispatcher concept [coroutine.affine.dispatcher]
+### 7.2 Dispatcher concept [coroutine.affine.dispatcher]
 
 ```cpp
 template<class D, class P = void>
-concept dispatcher = requires(D d, coroutine_handle<P> h) { d(h); };
+concept dispatcher = requires(D const& d, coroutine_handle<P> h) {
+  { d(h) } -> std::convertible_to<std::coroutine_handle<>>;
+};
 ```
 
-*Remarks:* Since `coroutine_handle<P>` has `operator()` which invokes `resume()`, the handle itself is callable and can be dispatched directly.
+*Remarks:* The dispatcher must return a `std::coroutine_handle<>` (or convertible type) to enable symmetric transfer. Calling `d(h)` schedules `h` for resumption (typically on a specific execution context) and returns a coroutine handle that the caller may use for symmetric transfer. The dispatcher must be const-callable (logical constness), enabling thread-safe concurrent dispatch from multiple coroutines. Since `coroutine_handle<P>` has `operator()` which invokes `resume()`, the handle itself is callable and can be dispatched directly.
 
-### 12.3 Affine awaitable concept [coroutine.affine.concept]
+### 7.3 Affine awaitable concept [coroutine.affine.concept]
 
 ```cpp
 template<class A, class D, class P = void>
 concept affine_awaitable =
   dispatcher<D, P> &&
-  requires(A a, coroutine_handle<P> h, D& d) {
+  requires(A a, coroutine_handle<P> h, D const& d) {
     a.await_suspend(h, d);
   };
 ```
 
-### 12.4 Affine awaiter [coroutine.affine.awaiter]
-
-```cpp
-template<class Awaitable, class Dispatcher>
-struct affine_awaiter {
-  Awaitable awaitable_;
-  Dispatcher* dispatcher_;
-
-  constexpr bool await_ready()
-    noexcept(noexcept(awaitable_.await_ready()))
-    { return awaitable_.await_ready(); }
-
-  constexpr auto await_suspend(coroutine_handle<> h)
-    noexcept(noexcept(awaitable_.await_suspend(h, *dispatcher_)))
-    { return awaitable_.await_suspend(h, *dispatcher_); }
-
-  constexpr decltype(auto) await_resume()
-    noexcept(noexcept(awaitable_.await_resume()))
-    { return awaitable_.await_resume(); }
-};
-
-template<class A, class D>
-affine_awaiter(A&&, D*) -> affine_awaiter<A, D>;
-```
-
-### 12.5 Resume context [coroutine.affine.context]
-
-```cpp
-template<class Scheduler>
-class resume_context {
-  Scheduler* sched_;  // exposition only
-
-public:
-  explicit resume_context(Scheduler& s) noexcept;
-
-  template<class F>
-    void operator()(F&& f) const;
-
-  Scheduler& scheduler() const noexcept;
-};
-```
-
-*Effects:* `operator()` invokes `sched_->dispatch(std::forward<F>(f))`.
-
-*Returns:* `scheduler()` returns `*sched_`.
-
-### 12.6 Affine promise mixin [coroutine.affine.promise]
-
-```cpp
-template<class Derived, class Dispatcher>
-class affine_promise {
-protected:
-  coroutine_handle<> continuation_;        // exposition only
-  Dispatcher* dispatcher_ = nullptr;       // exposition only
-  bool* done_flag_ = nullptr;              // exposition only
-
-public:
-  void set_continuation(coroutine_handle<> h) noexcept;
-  void set_dispatcher(Dispatcher& d) noexcept;
-  void set_done_flag(bool& flag) noexcept;
-  auto final_suspend() noexcept;
-};
-```
-
-*Effects:* `final_suspend()` returns an awaiter that:
-- Sets `*done_flag_` to `true` if `done_flag_` is not null.
-- If `dispatcher_` is not null, invokes `(*dispatcher_)(f)` where `f` resumes `continuation_` if non-null, then returns `noop_coroutine()`.
-- Otherwise returns `continuation_` if non-null, or `noop_coroutine()`.
-
-*Remarks:* `done_flag_` is an optional pointer set via `set_done_flag` for sync-wait style patterns.
-
-### 12.7 Affine task mixin [coroutine.affine.task]
-
-```cpp
-template<class T, class Derived, class Dispatcher>
-class affine_task {
-public:
-  bool await_ready() const noexcept;
-
-  coroutine_handle<>
-  await_suspend(coroutine_handle<> caller) noexcept;
-
-  template<class D>
-    requires convertible_to<D, Dispatcher>
-  coroutine_handle<>
-  await_suspend(coroutine_handle<> caller, D& d) noexcept;
-
-  decltype(auto) await_resume();
-};
-```
-
-*Requires:* `Derived` shall provide a `handle()` member function returning a coroutine handle whose promise type provides `set_continuation`, `set_dispatcher`, and `result` member functions.
-
-### 12.8 Affine trampoline [coroutine.affine.trampoline]
-
-```cpp
-template<class Awaitable, class Dispatcher>
-auto make_affine(Awaitable&& awaitable, Dispatcher& dispatcher)
-  -> /* affinity_trampoline<await-result-type<Awaitable>> */;
-```
-
-*Effects:* Returns an awaitable that wraps `awaitable` in a trampoline coroutine. When `awaitable` completes, the trampoline dispatches the continuation through `dispatcher` before resuming the caller.
-
-*Returns:* An awaitable yielding the same result type as `awaitable`.
-
-*Remarks:* This function is the fallback for legacy awaitables that do not implement the `affine_awaitable` protocol. The trampoline coroutine incurs one heap allocation per invocation. See the reference implementation at https://github.com/vinniefalco/make_affine/blob/master/affine.hpp for the complete trampoline design.
+*Remarks:* This concept detects awaitables that participate in the affine awaitable protocol (§4) by providing the extended `await_suspend(h, d)` overload. The dispatcher is passed by const lvalue reference, and the awaitable must use it to resume the caller. The dispatcher returns a coroutine handle that `await_suspend` may return for symmetric transfer.
 
 ---
 
-## 13. Summary
+## 8. Summary
+
+This proposal standardizes a minimal protocol for zero-overhead scheduler affinity in C++ coroutines:
 
 | Component | Purpose |
 |-----------|---------|
 | `dispatcher<D,P>` | Concept for types callable with `coroutine_handle<P>` |
 | `affine_awaitable<A,D,P>` | Concept detecting extended `await_suspend` protocol |
-| `affine_awaiter<A,D>` | Bridges standard coroutine machinery to extended protocol |
-| `resume_context<Scheduler>` | Single type: callable for awaitables, scheduler access for senders |
-| `affine_promise<Derived,D>` | CRTP mixin providing `final_suspend` with dispatcher support |
-| `affine_task<T,Derived,D>` | CRTP mixin providing both `await_suspend` overloads |
-| `make_affine(a, d)` | Trampoline fallback for legacy awaitables |
 
-**The core insight:** Awaitables that accept a dispatcher can resume through it, achieving zero-overhead scheduler affinity without the full sender/receiver protocol. A unified `resume_context` type enables transparent integration with P2300 senders while serving the broader awaitable ecosystem.
+**The protocol (§4):** Awaitables that accept a dispatcher in `await_suspend(h, d)` can resume through it, achieving zero-overhead scheduler affinity. Task types propagate the dispatcher through `co_await` chains, ensuring every coroutine resumes where it belongs.
 
 **The vision:** Every coroutine resumes where it belongs. No exceptions, no overhead, no rewrites.
 
@@ -908,7 +548,7 @@ auto make_affine(Awaitable&& awaitable, Dispatcher& dispatcher)
 
 ## Acknowledgements
 
-Thanks to Matheus Izvekov for feedback on reusable components and third-party coroutine extensibility. Thanks to Klemens Morgenstern for insights on real-world `await_transform` patterns, the strict-mode migration strategy (§7), and refining the dispatcher concept to accept coroutine handles directly. Thanks to the authors of P3552 (Dietmar Kühl, Maikel Nadolski) for establishing the foundation this proposal builds upon.
+Thanks to Matheus Izvekov for feedback on reusable components and third-party coroutine extensibility. Thanks to Klemens Morgenstern for insights on real-world `await_transform` patterns and refining the dispatcher concept to accept coroutine handles directly. Thanks to Mateusz Pusz for detailed feedback on implementation patterns and P3552 integration. Thanks to the authors of P3552 (Dietmar Kühl, Maikel Nadolski) for establishing the foundation this proposal builds upon.
 
 ---
 
@@ -944,7 +584,7 @@ Thanks to Matheus Izvekov for feedback on reusable components and third-party co
 - **Boost.Asio** — Cross-platform C++ library for network and low-level I/O programming, with coroutine support since Boost 1.66 (2017).  
   [https://www.boost.org/doc/libs/release/doc/html/boost_asio.html](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html)
 
-- **cppcoro** — Lewis Baker's coroutine library providing task types, generators, and async primitives.  
+- **cppcoro** — Lewis Baker's coroutine library providing task types, generators, and async primitives. Note: This library is not actively maintained.  
   [https://github.com/lewissbaker/cppcoro](https://github.com/lewissbaker/cppcoro)
 
 - **libcoro** — Modern C++20 coroutine library.  
@@ -957,6 +597,9 @@ Thanks to Matheus Izvekov for feedback on reusable components and third-party co
   [https://github.com/facebook/folly/tree/main/folly/coro](https://github.com/facebook/folly/tree/main/folly/coro)
 
 ### Background Reading
+
+- Vinnie Falco. *Coroutine-First I/O: A Type-Erased Affine Framework*. Analysis of networking-first async design and comparison with `std::execution` (P2300), demonstrating that senders may not be well-suited for CPU I/O workloads.  
+  [https://github.com/cppalliance/wg21-papers/blob/master/coro-first-io.md](https://github.com/cppalliance/wg21-papers/blob/master/coro-first-io.md)
 
 - Corentin Jabot. *A Universal Async Abstraction for C++*. Discussion of executor models and design trade-offs.  
   [https://cor3ntin.github.io/posts/executors/](https://cor3ntin.github.io/posts/executors/)
@@ -976,10 +619,7 @@ Thanks to Matheus Izvekov for feedback on reusable components and third-party co
 Initial revision. This paper supersedes the earlier "Simplifying P3552R3 with `make_affine`" draft, which focused narrowly on the trampoline fallback. This revision presents a complete framework:
 
 - Introduces the `affine_awaitable` concept for zero-overhead scheduler affinity
-- Provides `affine_awaiter` to bridge standard coroutine machinery
-- Defines `resume_context` to unify scheduler and dispatcher interfaces  
-- Specifies CRTP mixins (`affine_promise`, `affine_task`) as building blocks
-- Retains `make_affine` as the fallback for legacy awaitables
+- Provides helpers to bridge standard coroutine machinery
 - Positions affine awaitables as a foundation that P3552's `task` can build upon
 
 The key insight: passing the dispatcher to the awaitable eliminates the trampoline allocation entirely for opt-in awaitables, while maintaining full compatibility with existing code.
@@ -987,7 +627,29 @@ The key insight: passing the dispatcher to the awaitable eliminates the trampoli
 ### R1 (2025-12-31)
 
 Incorporated feedback and clarifications contributed by Logan McDougall:
-- Added formal protocol link and clarified adapter direction in §4.2
-- Clarified tiered vs. strict policies and migration roles in §7
+- Added formal protocol link and clarified adapter direction in §4.3
+- Clarified tiered vs. strict policies and migration roles in §6
 - Simplified allocation table and references; documented `done_flag_` and reference link
 - Noted library implementability and dispatcher extensibility
+
+### R2 (2025-12-31)
+
+Focused proposal on core protocol and concepts:
+- Removed implementation details (mixins, trampoline, tiered/strict modes) from normative sections
+- Inserted protocol specification verbatim from `affine-awaitable-protocol.md` (§4)
+- Merged concepts into protocol section (§4.1, §4.2)
+- Added non-normative section (§5) describing implementation examples with clear statement that mixins are not proposed
+- Simplified proposed wording to only include concepts
+- Maintained emotional arc and technical tone while narrowing scope
+
+### R3 (2026-01-03)
+
+Refinements based on implementation and feedback:
+- Updated dispatcher concept to require return of `std::coroutine_handle<>` for symmetric transfer (§4.1, §7.2)
+- Updated all examples and proposed wording to reflect dispatcher return value requirement
+- Added implementation patterns section (§6.1) describing tiered vs. strict modes, non-breaking overload addition, and gradual migration path
+- Restructured section 6: converted main benefit headings to bold format, renumbered implementation patterns subsection
+- Consolidated helper type lists to single canonical reference, replaced other mentions with generic "helpers"
+- Updated reference implementation: made `make_affine.hpp` self-contained, removed duplicate definitions from `affine_helpers.hpp`
+
+

@@ -294,6 +294,8 @@ This paper demonstrates that a networking-first coroutine framework is both achi
 
 *This section defines our executor abstraction—deliberately simpler than std::execution's scheduler model because networking needs dispatch and post, not algorithm customization.*
 
+**Terminology note:** We use the term *executor* rather than *scheduler* intentionally, to avoid conflating the two concepts. In `std::execution`, schedulers are designed for heterogeneous computing—selecting GPU vs CPU algorithms, managing completion domains, and dispatching to hardware accelerators. Networking has different needs: strand serialization, I/O completion contexts, and thread affinity. By using *executor* for our abstraction, we signal that this is a distinct concept tailored to networking's requirements, not an adaptation of the scheduler model. This terminology is also an homage to the quarter-century of pioneering work from Chris Kohlhoff, whose executor model in Boost.Asio established the foundation for modern C++ asynchronous I/O.
+
 C++20 coroutines provide type erasure *by construction*—but not through the handle type. `std::coroutine_handle<void>` and `std::coroutine_handle<promise_type>` are both just pointers with identical overhead. The erasure that matters is *structural*:
 
 1. **The frame is opaque**: Callers see only a handle, not the promise's layout

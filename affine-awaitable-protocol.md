@@ -5,8 +5,9 @@ Minimal, library-agnostic requirements for propagating scheduler affinity throug
 ## 1. Dispatcher
 
 - A dispatcher is any callable object `D` such that:
-  - For some promise type `P` (default `void`), `D(h)` is valid where `h` is `std::coroutine_handle<P>`.
-  - Calling `D(h)` eventually resumes `h` (typically by scheduling it on a specific execution context).
+  - For some promise type `P` (default `void`), `d(h)` is valid where `d` is a const reference to `D` (i.e., `D const& d`) and `h` is `std::coroutine_handle<P>`.
+  - Calling `d(h)` eventually resumes `h` (typically by scheduling it on a specific execution context).
+  - The dispatcher must be const-callable (logical constness), enabling thread-safe concurrent dispatch from multiple coroutines.
 - **Lifetime:** In `await_suspend`, the dispatcher is received by lvalue reference. The callee treats it as *borrowed for the duration of the await* (do not retain past completion). Ownership and lifetime are the caller’s responsibility. The caller may store the dispatcher by value (if owning) or by pointer/reference (if externally owned) but must present it to callees as an lvalue reference.
 
 ## 2. Awaitable Requirements (callee role)
@@ -15,7 +16,7 @@ An awaitable **participates in the affinity protocol** if it provides an overloa
 
 ```cpp
 template<class Dispatcher>
-auto await_suspend(std::coroutine_handle<> h, Dispatcher& d);
+auto await_suspend(std::coroutine_handle<> h, Dispatcher const& d);
 ```
 
 Semantics:
@@ -35,7 +36,7 @@ A task type (its promise) **propagates affinity** if it:
      // dispatcher_handle: whatever you store for the caller's dispatcher (pointer or reference)
      return affine_awaiter{std::forward<Awaitable>(a), dispatcher_handle};
      ```
-   - The callee receives it as `Dispatcher&` in `await_suspend(h, d)`.
+   - The callee receives it as `Dispatcher const&` in `await_suspend(h, d)`.
    - If `A` is not affine and you still want affinity, wrap it (e.g. `make_affine(A, dispatcher)`) or reject it (strict mode).
 
 3) **Provides both await paths for its own awaitability.**  

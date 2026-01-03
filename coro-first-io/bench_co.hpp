@@ -16,6 +16,7 @@
 
 #include <exception>
 #include <memory>
+#include <stdexcept>
 
 #if defined(__clang__) && !defined(__apple_build_version__)
 #define CORO_AWAIT_ELIDABLE [[clang::coro_await_elidable]]
@@ -239,6 +240,99 @@ struct CORO_AWAIT_ELIDABLE task
         has_own_ex_ = true;
     }
 };
+
+/** Helper to get the current executor pointer from inside a task coroutine.
+    
+    This awaitable can be used inside a task coroutine to access
+    the executor on which the coroutine is running.
+    
+    @par Example
+    @code
+    task my_task()
+    {
+        auto* ex = co_await get_executor_ptr();
+        if(ex)
+        {
+            // Use executor...
+            ex->post(some_work);
+        }
+        co_return;
+    }
+    @endcode
+    
+    @return A pointer to the executor, or nullptr if not yet set.
+*/
+inline auto get_executor_ptr()
+{
+    struct awaiter
+    {
+        task::promise_type* p_ = nullptr;
+        
+        bool await_ready() const noexcept { return false; }
+        
+        template<class Promise>
+        void await_suspend(std::coroutine_handle<Promise> h) noexcept
+        {
+            if constexpr (std::same_as<Promise, task::promise_type>)
+            {
+                p_ = &h.promise();
+            }
+        }
+        
+        any_executor const* await_resume() const noexcept
+        {
+            return p_ ? p_->ex_ : nullptr;
+        }
+    };
+    return awaiter{};
+}
+
+/** Helper to get the current executor reference from inside a task coroutine.
+    
+    This awaitable can be used inside a task coroutine to access
+    the executor on which the coroutine is running. Throws if the
+    executor is not yet set.
+    
+    @par Example
+    @code
+    task my_task()
+    {
+        auto& ex = co_await get_executor();
+        // Use executor...
+        ex.post(some_work);
+        co_return;
+    }
+    @endcode
+    
+    @return A reference to the executor.
+    @throws std::runtime_error if the executor is not yet set.
+*/
+inline auto get_executor()
+{
+    struct awaiter
+    {
+        task::promise_type* p_ = nullptr;
+        
+        bool await_ready() const noexcept { return false; }
+        
+        template<class Promise>
+        void await_suspend(std::coroutine_handle<Promise> h) noexcept
+        {
+            if constexpr (std::same_as<Promise, task::promise_type>)
+            {
+                p_ = &h.promise();
+            }
+        }
+        
+        any_executor const& await_resume() const
+        {
+            if(!p_ || !p_->ex_)
+                throw std::runtime_error("executor not set");
+            return *p_->ex_;
+        }
+    };
+    return awaiter{};
+}
 
 /** A TLS stream adapter that wraps another stream.
 
