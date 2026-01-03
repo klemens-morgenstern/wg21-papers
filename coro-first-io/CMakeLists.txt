@@ -30,12 +30,14 @@ target_include_directories(bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Platform-specific settings
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(bench PRIVATE -fcoroutines -Wall -Wextra -Wpedantic)
+    target_compile_options(bench PRIVATE -fcoroutines -Wall -Wextra -Wpedantic -O3 -march=native -flto -DNDEBUG)
+    target_link_options(bench PRIVATE -flto)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(bench PRIVATE -stdlib=libc++ -Wall -Wextra -Wpedantic)
-    target_link_options(bench PRIVATE -stdlib=libc++)
+    target_compile_options(bench PRIVATE -stdlib=libc++ -Wall -Wextra -Wpedantic -O3 -march=native -flto -DNDEBUG)
+    target_link_options(bench PRIVATE -stdlib=libc++ -flto)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    target_compile_options(bench PRIVATE /W4 /permissive-)
+    target_compile_options(bench PRIVATE /W4 /permissive- /O2 /Ob2 /GL)
+    target_link_options(bench PRIVATE /LTCG)
 endif()
 
 # Threading support
