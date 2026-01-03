@@ -443,6 +443,45 @@ struct CORO_AWAIT_ELIDABLE task
     }
 };
 
+//----------------------------------------------------------
+
+/** A TLS stream adapter that wraps another stream.
+    
+    This class wraps a stream and provides an async_read_some
+    operation that invokes the wrapped stream's async_read_some
+    twice, simulating TLS record layer behavior where data may
+    be split across multiple reads.
+
+    @tparam Stream The stream type to wrap.
+*/
+template<class Stream>
+struct tls_stream
+{
+    Stream stream_;
+
+    template<class... Args>
+    explicit tls_stream(Args&&... args)
+        : stream_(std::forward<Args>(args)...) {}
+
+    auto get_executor() const { return stream_.get_executor(); }
+
+    task async_read_some()
+    {
+        co_await stream_.async_read_some();
+        co_await stream_.async_read_some();
+    }
+
+    // Frame allocator forwarding
+    template<class Stream2 = Stream>
+    requires requires(Stream2& s) { s.get_frame_allocator(); }
+    auto& get_frame_allocator()
+    {
+        return stream_.get_frame_allocator();
+    }
+};
+
+//----------------------------------------------------------
+
 /** Binds a task to execute on a specific executor.
 
     This function sets the executor for a task, causing it to run on the

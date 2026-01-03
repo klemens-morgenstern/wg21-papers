@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <iomanip>
 #include <cstdlib>
 #include <new>
 
@@ -92,9 +93,13 @@ struct bench_test
         return { ns / N, g_alloc_count / N, g_io_count / N, g_work_count / N };
     }
 
-    static void print_line(char const* name, char const* type, bench_result const& r, bench_result const& other)
+    static void print_line(int level, char const* stream_type, char const* op_name, char const* style, bench_result const& r, bench_result const& other)
     {
-        std::cout << name << type << r.ns << " ns/op";
+        std::cout << level << " "
+                  << std::left << std::setw(11) << stream_type
+                  << std::setw(11) << op_name
+                  << std::setw(3) << style << ": "
+                  << std::right << std::setw(5) << r.ns << " ns/op";
         if (r.allocs != 0)
             std::cout << ", " << r.allocs << " allocs/op";
         if (r.ios != other.ios)
@@ -104,48 +109,69 @@ struct bench_test
         std::cout << "\n";
     }
 
-    static void print_results(char const* name, bench_result const& cb, bench_result const& co)
+    static void print_results(int level, char const* stream_type, char const* op_name, bench_result const& cb, bench_result const& co)
     {
-        print_line(name, "callback: ", cb, co);
-        print_line(name, "coro:     ", co, cb);
+        print_line(level, stream_type, op_name, "cb", cb, co);
+        print_line(level, stream_type, op_name, "co", co, cb);
     }
 
     void
     run()
     {
-        std::cout << "\n";
-
         io_context ioc;
-        cb::socket cb_sock(ioc.get_executor());
+        auto ex = ioc.get_executor();
+        cb::socket<io_context::executor> cb_sock(ex);
         co::socket co_sock;
+        cb::tls_stream<cb::socket<io_context::executor>> cb_tls(ex);
+        co::tls_stream<co::socket> co_tls;
 
         bench_result cb, co;
 
-        // 1 call
+        // socket read_some (1 call) - level 1
         cb = bench(cb_sock, [](auto& sock, auto h){ sock.async_read_some(std::move(h)); });
         co = bench_co(ioc, [&](int& count) -> co::task { co_await co_sock.async_read_some(); ++count; });
-        print_results("read_some        ", cb, co);
+        print_results(1, "socket", "read_some", cb, co);
+
+        // tls_stream read_some (2 calls) - level 1
+        cb = bench(cb_tls, [](auto& sock, auto h){ sock.async_read_some(std::move(h)); });
+        co = bench_co(ioc, [&](int& count) -> co::task { co_await co_tls.async_read_some(); ++count; });
+        print_results(1, "tls_stream", "read_some", cb, co);
 
         std::cout << "\n";
 
-        // 10 calls
+        // socket read (10 calls) - level 2
         cb = bench(cb_sock, [](auto& sock, auto h){ cb::async_read(sock, std::move(h)); });
         co = bench_co(ioc, [&](int& count) -> co::task { co_await co::async_read(co_sock); ++count; });
-        print_results("async_read       ", cb, co);
+        print_results(2, "socket", "read", cb, co);
+
+        // tls_stream read (20 calls) - level 2
+        cb = bench(cb_tls, [](auto& sock, auto h){ cb::async_read(sock, std::move(h)); });
+        co = bench_co(ioc, [&](int& count) -> co::task { co_await co::async_read(co_tls); ++count; });
+        print_results(2, "tls_stream", "read", cb, co);
 
         std::cout << "\n";
 
-        // 100 calls
+        // socket request (100 calls) - level 3
         cb = bench(cb_sock, [](auto& sock, auto h){ cb::async_request(sock, std::move(h)); });
         co = bench_co(ioc, [&](int& count) -> co::task { co_await co::async_request(co_sock); ++count; });
-        print_results("async_request    ", cb, co);
+        print_results(3, "socket", "request", cb, co);
+
+        // tls_stream request (200 calls) - level 3
+        cb = bench(cb_tls, [](auto& sock, auto h){ cb::async_request(sock, std::move(h)); });
+        co = bench_co(ioc, [&](int& count) -> co::task { co_await co::async_request(co_tls); ++count; });
+        print_results(3, "tls_stream", "request", cb, co);
 
         std::cout << "\n";
 
-        // 1000 calls
+        // socket session (1000 calls) - level 4
         cb = bench(cb_sock, [](auto& sock, auto h){ cb::async_session(sock, std::move(h)); });
         co = bench_co(ioc, [&](int& count) -> co::task { co_await co::async_session(co_sock); ++count; });
-        print_results("async_session    ", cb, co);
+        print_results(4, "socket", "session", cb, co);
+
+        // tls_stream session (2000 calls) - level 4
+        cb = bench(cb_tls, [](auto& sock, auto h){ cb::async_session(sock, std::move(h)); });
+        co = bench_co(ioc, [&](int& count) -> co::task { co_await co::async_session(co_tls); ++count; });
+        print_results(4, "tls_stream", "session", cb, co);
     }
 };
 

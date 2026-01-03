@@ -55,6 +55,35 @@ struct socket
 
 //----------------------------------------------------------
 
+/** A TLS stream adapter that wraps another stream.
+    
+    This class wraps a stream and provides an async_read_some
+    operation that invokes the wrapped stream's async_read_some
+    twice, simulating TLS record layer behavior where data may
+    be split across multiple reads.
+
+    @tparam Stream The stream type to wrap.
+*/
+template<class Stream>
+struct tls_stream
+{
+    Stream stream_;
+
+    template<class... Args>
+    explicit tls_stream(Args&&... args)
+        : stream_(std::forward<Args>(args)...) {}
+
+    auto get_executor() const { return stream_.get_executor(); }
+
+    template<class Handler>
+    void async_read_some(Handler&& handler)
+    {
+        detail::tls_read_op<Stream, std::decay_t<Handler>>(stream_, std::forward<Handler>(handler))();
+    }
+};
+
+//----------------------------------------------------------
+
 /** Performs a composed read operation on a stream.
 
     This function performs 10 sequential read_some operations on the
@@ -126,7 +155,7 @@ void detail::request_op<Stream, Handler>::operator()()
         async_read(*stream_, std::move(*this));
         return;
     }
-    stream_->get_executor().dispatch(std::move(handler_));
+    handler_();
 }
 
 template<class Stream, class Handler>
@@ -137,7 +166,7 @@ void detail::session_op<Stream, Handler>::operator()()
         async_request(*stream_, std::move(*this));
         return;
     }
-    stream_->get_executor().dispatch(std::move(handler_));
+    handler_();
 }
 
 } // cb

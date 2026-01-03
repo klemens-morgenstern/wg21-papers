@@ -107,7 +107,7 @@ struct read_op
             stream_->async_read_some(std::move(*this));
             return;
         }
-        stream_->get_executor().dispatch(std::move(handler_));
+        handler_();
     }
 };
 
@@ -135,6 +135,27 @@ struct session_op
         : stream_(&stream), handler_(std::move(h)) {}
 
     void operator()();
+};
+
+template<class Stream, class Handler>
+struct tls_read_op
+{
+    Stream* stream_;
+    Handler handler_;
+    int count_ = 0;
+
+    tls_read_op(Stream& stream, Handler h)
+        : stream_(&stream), handler_(std::move(h)) {}
+
+    void operator()()
+    {
+        if(count_++ < 2)
+        {
+            stream_->async_read_some(std::move(*this));
+            return;
+        }
+        stream_->get_executor().dispatch(std::move(handler_));
+    }
 };
 
 } // detail

@@ -33,7 +33,7 @@ void async_read(Executor ex, Handler&& handler);
 
 Every composed operation must propagate these template parameters, creating a cascade of instantiations. The executor type, the handler type, and often an allocator type all become part of the function signature. Users cannot hold heterogeneous operations in containers. Libraries cannot define stable ABIs. The "zero-cost abstraction" exacts its price in compile time, code size, and API complexity.
 
-Type erasure offers an escape, but the traditional approach—`std::function` for handlers, `any_executor` for executors—introduces heap allocations at every composition boundary. Our benchmarks show this penalty compounds: a four-level operation using fully type-erased callbacks allocates 601 times per invocation and runs 5.6× slower than native templates.
+Type erasure offers an escape, but the traditional approach—`std::function` for handlers, `any_executor` for executors—introduces heap allocations at every composition boundary. Early testing showed this penalty compounds catastrophically: a four-level operation using fully type-erased callbacks allocated hundreds of times per invocation and ran an order of magnitude slower than native templates. We quickly eliminated this configuration from further consideration—it is not competitive.
 
 We sought a third path: *what would an asynchronous I/O framework look like if we designed it from first principles for networking?* Not adapting an existing abstraction, not generalizing from parallel algorithms, but starting with sockets, buffers, strands, and completion ports as the primary concerns.
 
@@ -70,6 +70,7 @@ This creates:
 - **Header-only dependencies** that must be recompiled on change
 - **Binary size growth** that can reach megabytes in complex applications
 - **Compile times measured in minutes** for moderate codebases
+- **Nested move-construction overhead** at runtime—composed handlers like `read_op<request_op<session_op<lambda>>>` must be moved at each abstraction layer, with costs that compound as nesting depth increases (see [Cost Analysis](https://github.com/cppalliance/wg21-papers/blob/master/coro-first-io/COST.md))
 
 ### 2.2 The Encapsulation Problem
 
@@ -127,6 +128,8 @@ The Networking TS remains the right choice when:
 - You're already invested in the Asio ecosystem
 - Maximum performance with zero abstraction is required
 - Standardization timeline matters for your project
+
+**Caution:** The "zero abstraction" advantage erodes with composition depth. Our [Cost Analysis](https://github.com/cppalliance/wg21-papers/blob/master/coro-first-io/COST.md) shows that callbacks outperform coroutines at shallow nesting (1-2 levels), but the relationship inverts at deeper levels—by Level 4 (1000 operations), callbacks can be 3× slower than coroutines on some compilers due to nested move-construction overhead.
 
 Our framework is better suited when:
 - Coroutines are the primary programming model
@@ -273,15 +276,23 @@ struct _retry_op {
 };
 ```
 
-This means operation state types propagate through every algorithm boundary, senders cannot hide their implementation behind stable interfaces, and changing an I/O implementation changes the sender's type—breaking ABI.
-
 This tax exists regardless of whether networking benefits from it. A socket that returns `default_domain` still participates in the dispatch protocol. The P3826 machinery runs, finds no customization, and falls through to the default—overhead for nothing.
 
 **The question is not whether P2300/P3826 break networking code.** They don't—defaults work. **The question is whether networking should pay for abstractions it doesn't use.** Our analysis suggests the cost is not justified when a simpler, networking-native design achieves the same goals.
 
+#### 2.5.7 Divergent Standardization Efforts
+
+WG21 faces a troubling pattern: std::execution continues evolving without addressing networking needs (§2.5.1-2.5.6), while separate proposals ([P3185](https://wg21.link/p3185), [P3482](https://wg21.link/p3482)) advocate replacing proven socket-based designs with the IETF TAPS framework—an abstract architecture with essentially no production deployment after a decade of development.
+
+Our analysis in [IETF TAPS versus Boost.Asio](https://github.com/cppalliance/wg21-papers/blob/master/ietf-taps-vs-asio.md) documents the risks of framework-first design. History favors proven practice: TCP/IP over OSI, BSD sockets over every proposed replacement, Boost.Asio's twenty years of field experience over speculative architecture.
+
+This paper demonstrates that a networking-first coroutine framework is both achievable and practical—without waiting for std::execution to address needs it wasn't designed for, and without adopting an untested abstraction model.
+
 ---
 
 ## 3. The Executor Model
+
+*This section defines our executor abstraction—deliberately simpler than std::execution's scheduler model because networking needs dispatch and post, not algorithm customization.*
 
 C++20 coroutines provide type erasure *by construction*—but not through the handle type. `std::coroutine_handle<void>` and `std::coroutine_handle<promise_type>` are both just pointers with identical overhead. The erasure that matters is *structural*:
 
@@ -405,6 +416,70 @@ async_run(strand{pool.get_executor()}, use_socket(sock));
 
 The socket receives its executor indirectly—through the coroutine machinery—yet still benefits from the caller's choice of strand wrapping, thread pool, or any other executor composition.
 
+### 3.3 Executor Wrapping: A Trade-off
+
+For completeness, we acknowledge a case where callbacks are superior: executor wrappers that inject behavior around the posted work.
+
+<table>
+<tr>
+<th>Callbacks</th>
+<th>Our Coroutine Model</th>
+</tr>
+<tr>
+<td>
+
+```cpp
+template<class Ex>
+struct wrapper {
+  Ex ex_;
+  
+  template<class F>
+  void post(F&& f) {
+    struct impl {
+      decay_t<F> f_;
+      void operator()() {
+        other_thing();
+        f_();
+      }
+    };
+    ex_.post(impl{move(f)});
+  }
+};
+```
+
+</td>
+<td>
+
+```cpp
+template<class Ex>
+struct wrapper {
+  Ex ex_;
+  
+  void post(work* w) {
+    struct impl : work {
+      work* inner_;
+      void operator()() {
+        other_thing();
+        (*inner_)();
+      }
+    };
+    ex_.post(new impl{w});
+  }
+};
+```
+
+</td>
+</tr>
+<tr>
+<td><strong>Cost: 0 allocations</strong></td>
+<td><strong>Cost: 1 allocation</strong></td>
+</tr>
+</table>
+
+Callbacks compose without allocation because `impl` embeds `F` by value into existing operation state. Our model requires allocating a `work` wrapper to inject behavior, but preserves the capability that raw `coroutine_handle<>` loses entirely.
+
+Most practical executor wrappers—strands, thread pools, priority queues—do not need to wrap the work itself, only manage when and where it executes. For these, our model pays no penalty. The allocation cost appears only for exotic wrappers that must inject behavior around the work's execution.
+
 ---
 
 ## 4. Platform I/O: Hiding the Machinery
@@ -460,12 +535,7 @@ This design eliminates container allocations—each work item carries its own li
 
 ### 4.3 The Encapsulation Tradeoff
 
-We pay a cost for translation unit hiding: one level of indirection through the preallocated `state` pointer. This is a **conscious design choice** that addresses the most common complaints from C++ users about template-heavy async libraries:
-
-- **"Asio compile times are killing us"** — Template instantiation is expensive
-- **"I can't read these error messages"** — Deep template nesting obscures intent
-- **"Changing the socket breaks everything"** — ABI instability forces full rebuilds
-- **"Why is my binary 50MB?"** — N×M instantiations bloat executables
+We pay a cost for translation unit hiding: one level of indirection through the preallocated `state` pointer. This addresses the template tax described in §2.1.
 
 **The alternative: frame-embedded operation state**
 
@@ -499,7 +569,9 @@ The cost is **one pointer dereference per I/O operation**—typically 1-2 nanose
 
 ## 5. The Affine Awaitable Protocol
 
-The core innovation is how execution context flows through coroutine chains. We extend the standard awaitable protocol with an *affine* overload of `await_suspend` that returns a coroutine handle for symmetric transfer:
+The core innovation is how execution context flows through coroutine chains. We extend the standard awaitable protocol with an *affine* overload of `await_suspend` that returns a coroutine handle for symmetric transfer.
+
+> **Formal specification:** The complete affine awaitable protocol is specified in [Affine Awaitable Protocol](https://github.com/cppalliance/wg21-papers/blob/master/affine-awaitable-protocol.md). A detailed proposal for standardization, including integration with P2300 senders and migration strategies, is presented in [Affine Awaitables: Zero-Overhead Scheduler Affinity for the Rest of Us](https://github.com/cppalliance/wg21-papers/blob/master/affine-awaitables.md).
 
 ```cpp
 template<class Executor>
@@ -701,7 +773,7 @@ void async_run(Executor ex, task t)
 
 The `root_task` frame lives on the heap and contains the executor by value. All child tasks receive `executor_ref` pointing into this frame. The frame self-destructs at `final_suspend`, after all children have completed.
 
-This design imposes overhead only at the root—intermediate tasks pay nothing for executor storage.
+This design provides two key benefits: **cheap type-erasure** (child tasks see only `executor_ref`, not the concrete executor type) and **automatic lifetime management** (the executor lives exactly as long as the operation tree it serves).
 
 ---
 
@@ -812,10 +884,10 @@ With recycling enabled for both models, we achieve zero steady-state allocations
 
 | Operation | Callback (recycling) | Coroutine (pooled) |
 |-----------|---------------------|-------------------|
-| async_io (1 level) | 0 | 0 |
-| async_read_some (2 levels) | 0 | 0 |
-| async_read (3 levels) | 0 | 0 |
-| async_request (100 iterations) | 0 | 0 |
+| Level 1 (read_some) | 0 | 0 |
+| Level 2 (read, 10×) | 0 | 0 |
+| Level 3 (request, 100×) | 0 | 0 |
+| Level 4 (session, 1000×) | 0 | 0 |
 
 ### 8.1 Recycling Matters for Both Models
 
@@ -823,7 +895,7 @@ A naive implementation of either model performs poorly. Without recycling:
 - **Callbacks**: Each I/O operation allocates and deallocates operation state
 - **Coroutines**: Each coroutine frame is heap-allocated and freed
 
-The key optimization for *both* models is **thread-local recycling**: caching recently freed memory for immediate reuse by the next operation.
+**Recycling is mandatory, not optional.** Early testing confirmed that non-recycling configurations perform so poorly—dominated by allocation overhead—that they are not worth benchmarking. The key optimization for *both* models is **thread-local recycling**: caching recently freed memory for immediate reuse by the next operation. All performance comparisons in this paper assume recycling is enabled.
 
 ### 8.2 Callback Recycling
 
@@ -876,13 +948,13 @@ static void* operator new(std::size_t size)
 
 This ensures that *all* coroutines—including lambdas, wrappers, and tasks without I/O object parameters—benefit from frame recycling. The pool uses thread-local caching with a global overflow pool for cross-thread scenarios.
 
-### 8.4 Amortized Cost
-
-Both models achieve **zero steady-state allocations** after warmup. The first iteration populates the caches; all subsequent operations recycle memory without syscalls.
-
 ---
 
 ## 9. Performance Comparison
+
+| ⚠️ **Benchmark Scope** |
+|:--|
+| These benchmarks measure **dispatch overhead only**—the cost of the async machinery itself, not actual I/O operations. No network or disk I/O is performed. Real I/O operations take 10,000–100,000+ ns; dispatch overhead (4–12,504 ns) is a small fraction of total operation time. Ratios like "3.2× faster" apply to dispatch cost, not end-to-end throughput. |
 
 ### 9.1 Clang with Frame Elision
 
@@ -890,10 +962,12 @@ Benchmarks compiled with Clang 20.1, `-O3`, Windows x64, with `[[clang::coro_awa
 
 | Operation | Callback | Coroutine | Ratio |
 |-----------|----------|-----------|-------|
-| async_io | 3 ns | 21 ns | 7.0× |
-| async_read_some | 4 ns | 25 ns | 6.3× |
-| async_read (10×) | 44 ns | 99 ns | 2.3× |
-| async_request (100×) | 498 ns | 750 ns | **1.5×** |
+| Level 1 (read_some) | 4 ns | 22 ns | 5.5× (cb faster) |
+| Level 2 (read, 10×) | 47 ns | 60 ns | 1.3× (cb faster) |
+| Level 3 (request, 100×) | 677 ns | 425 ns | **0.63× (co faster)** |
+| Level 4 (session, 1000×) | 12504 ns | 3868 ns | **0.31× (co 3.2× faster)** |
+
+**Key observation:** At shallow abstraction levels, callbacks outperform coroutines. However, at deep abstraction levels (Level 4), callbacks become **3.2× slower** than coroutines due to nested move constructor chains that Clang's optimizer cannot eliminate.
 
 ### 9.2 MSVC Comparison
 
@@ -901,39 +975,53 @@ The same benchmarks compiled with MSVC 19.x, RelWithDebInfo, Windows x64:
 
 | Operation | Callback | Coroutine | Ratio |
 |-----------|----------|-----------|-------|
-| async_io | 5 ns | 58 ns | 11.6× |
-| async_read_some | 5 ns | 69 ns | 13.8× |
-| async_read (10×) | 60 ns | 226 ns | 3.8× |
-| async_request (100×) | 673 ns | 1749 ns | 2.6× |
+| Level 1 (read_some) | 4 ns | 24 ns | 6.0× |
+| Level 2 (read, 10×) | 61 ns | 89 ns | 1.5× |
+| Level 3 (request, 100×) | 674 ns | 701 ns | **1.04× (essentially equal)** |
+| Level 4 (session, 1000×) | 7172 ns | 6611 ns | **0.92× (co slightly faster)** |
 
-MSVC's coroutine implementation is approximately 2× slower than Clang's for this workload. The difference stems from:
-- Less aggressive inlining of coroutine machinery
-- No support for `[[clang::coro_await_elidable]]`
-- Different code generation for symmetric transfer
+**Key observation:** MSVC's optimizer successfully eliminates the callback abstraction penalty that Clang cannot. At Level 4, callbacks and coroutines perform nearly equally (1.08× ratio), demonstrating that the callback slowdown on Clang is compiler-specific rather than inherent to the model.
 
 ### 9.3 Analysis
 
-**Overhead Ratio Improves with Depth**: The key observation is that the callback/coroutine ratio *improves* as operation complexity increases:
+**Performance is compiler-dependent.** The callback/coroutine ratio varies dramatically:
 
 | Depth | Clang Ratio | MSVC Ratio |
 |-------|-------------|------------|
-| 1 operation | 7.0× | 11.6× |
-| 10 operations | 2.3× | 3.8× |
-| 100 operations | **1.5×** | 2.6× |
+| Level 1 (1 op) | 5.5× (cb faster) | 6.0× (cb faster) |
+| Level 2 (10 ops) | 1.3× (cb faster) | 1.5× (cb faster) |
+| Level 3 (100 ops) | 0.63× (co faster) | 1.04× (near parity) |
+| Level 4 (1000 ops) | 0.31× (co faster) | 0.92× (co faster) |
 
-This is because coroutine overhead is *fixed per suspension*, while the useful work (queue operations) scales with depth. For `async_request`:
-- Clang: 750 ns / 100 ops = 7.5 ns per I/O
-- MSVC: 1749 ns / 100 ops = 17.5 ns per I/O
-- Callback: ~5 ns per I/O
+At shallow levels, callbacks win. At deep levels, coroutines win on Clang (dramatically) and GCC (modestly); MSVC achieves near-parity. Section 10.2 explains why: nested move constructor chains that some compilers optimize away and others don't.
 
-### 9.4 Real-World Context
+### 9.4 GCC Comparison
+
+Benchmarks compiled with GCC 15.2, `-O3`, Windows x64:
+
+| Operation | Callback | Coroutine | Ratio |
+|-----------|----------|-----------|-------|
+| Level 1 (read_some) | 5 ns | 20 ns | 4.0× |
+| Level 2 (read, 10×) | 50 ns | 66 ns | 1.3× |
+| Level 3 (request, 100×) | 473 ns | 560 ns | 1.2× |
+| Level 4 (session, 1000×) | 6613 ns | 5681 ns | **0.86× (co 1.16× faster)** |
+
+**Key observations:** GCC shows an intermediate optimization profile between Clang and MSVC:
+- **Better than Clang**: GCC achieves callback performance closer to coroutines (1.16× ratio vs Clang's 3.2×)
+- **Worse than MSVC**: GCC doesn't achieve MSVC's near-parity (1.16× vs MSVC's 1.08×)
+- **Callbacks excel at shallow levels**: GCC's callback implementation is faster than coroutines for levels 1-3
+- **Coroutines faster at deep levels**: At Level 4, coroutines are 1.16× faster than callbacks
+
+GCC optimizes shallow callback chains well but shows some penalty at deeper abstraction levels, falling between Clang's conservative approach and MSVC's aggressive optimization.
+
+### 9.5 Real-World Context
 
 For I/O-bound workloads:
 - Network RTT: 100,000+ ns
 - Disk access: 10,000+ ns  
-- Coroutine overhead: 7-18 ns per suspension (compiler-dependent)
+- Dispatch overhead: 4–12,504 ns (compiler and depth dependent)
 
-Even with MSVC, the coroutine overhead is **0.02%** of a typical network operation. The 1.5-2.6× overhead for `async_request` is the cost of compositional async/await syntax versus hand-optimized state machines—a reasonable trade-off for most applications.
+Even the largest dispatch overhead (~12 µs for 1000 nested callbacks on Clang) is ~12% of a typical network round-trip. For most applications, the choice between callbacks and coroutines should be driven by code clarity and maintainability rather than dispatch microbenchmarks.
 
 ---
 
@@ -970,25 +1058,31 @@ However, **Clang provides `[[clang::coro_await_elidable]]`**, an attribute that 
 struct CORO_AWAIT_ELIDABLE task { /* ... */ };
 ```
 
-With this attribute, Clang can elide nested coroutine frames into the parent's frame when directly awaited. Our benchmarks show a **26% performance improvement** with this attribute enabled:
+With this attribute, Clang can elide nested coroutine frames into the parent's frame when directly awaited, providing significant performance improvements for nested coroutine calls.
 
-| Metric | Without Attribute | With Attribute |
-|--------|-------------------|----------------|
-| async_request | 1001 ns | 750 ns |
-| Overhead ratio | 2.0× | 1.5× |
-
-This optimization is Clang-specific. MSVC does not currently support coroutine await elision, contributing to its 2× slower coroutine performance.
+This optimization is Clang-specific. MSVC and GCC do not currently support coroutine await elision, which contributes to their slower coroutine performance relative to Clang.
 
 ### 10.2 Compiler Differences
 
-| Feature | Clang 20.x | MSVC 19.x |
-|---------|-----------|-----------|
-| `[[coro_await_elidable]]` | ✓ | ✗ |
-| Frame elision (HALO) | Aggressive | Conservative |
-| Symmetric transfer | Optimized | Less optimized |
-| Overall coroutine speed | Faster | ~2× slower |
+| Feature | Clang 20.x | MSVC 19.x | GCC 15.x |
+|---------|-----------|-----------|----------|
+| `[[coro_await_elidable]]` | ✓ | ✗ | ✗ |
+| Frame elision (HALO) | Aggressive | Conservative | Moderate |
+| Symmetric transfer | Optimized | Less optimized | Moderate |
+| Coroutine speed (Level 4) | Fastest (3868 ns) | Moderate (6611 ns) | Fast (5681 ns) |
+| Callback optimization | Conservative | Aggressive | Moderate |
+| Callback speed (Level 4) | Slow (12504 ns) | Fast (7172 ns) | Moderate (6613 ns) |
+| Callback/coroutine ratio (Level 4) | 3.2× (co faster) | 1.08× (near parity) | 1.16× (co faster) |
 
-For performance-critical coroutine code, Clang currently provides superior optimization. MSVC's coroutine implementation continues to improve, but production code should account for this difference.
+**Callback performance differences:**
+
+- **Clang**: Conservative optimizer cannot eliminate nested move constructor chains (~280 bytes moved per I/O). Callbacks become 3.2× slower than coroutines at deep abstraction levels due to template type growth and temporary object churn.
+
+- **MSVC**: Aggressive optimizer inlines deeply nested move constructors through 3-4 template layers, eliminates stack temporaries, and optimizes across template instantiations. Achieves near-parity between callbacks and coroutines (1.08× ratio).
+
+- **GCC**: Intermediate optimization profile. Better than Clang at eliminating callback overhead (1.16× ratio vs Clang's 3.2×) but doesn't achieve MSVC's near-parity. Callbacks excel at shallow levels; coroutines faster at deep levels.
+
+For performance-critical coroutine code, Clang currently provides superior optimization. However, callback performance is highly compiler-dependent—MSVC demonstrates that aggressive optimization can eliminate the callback abstraction penalty entirely.
 
 **A note on template coroutines:**
 
@@ -1025,9 +1119,10 @@ This raises a broader concern: C++20 coroutines are now five years post-standard
 |--------|---------------|-----------------|
 | API Complexity | High (templates everywhere) | Low (uniform `task` type) |
 | Compile Time | Poor (deep template instantiation) | Good (type erasure at boundaries) |
-| Runtime (shallow, Clang) | Excellent (~3-4 ns) | Moderate (~21-25 ns) |
-| Runtime (deep, Clang) | ~500 ns for 100 ops | ~750 ns for 100 ops (1.5×) |
-| Runtime (deep, MSVC) | ~670 ns for 100 ops | ~1750 ns for 100 ops (2.6×) |
+| Runtime (shallow, Clang) | Excellent (~4 ns) | Moderate (~22 ns) |
+| Runtime (deep, Clang) | ~12504 ns for 1000 ops | ~3868 ns for 1000 ops (**co 3.2× faster**) |
+| Runtime (deep, MSVC) | ~7172 ns for 1000 ops | ~6611 ns for 1000 ops (**near parity**) |
+| Runtime (deep, GCC) | ~6613 ns for 1000 ops | ~5681 ns for 1000 ops (**co 1.16× faster**) |
 | Allocations (optimized) | 0 (recycling allocator) | 0 (frame pooling) |
 | Handle overhead | N/A | Zero (`handle<void>` = `handle<T>`) |
 | Sender compatibility | N/A | Native (`dispatch().resume()` pattern) |
@@ -1035,9 +1130,10 @@ This raises a broader concern: C++20 coroutines are now five years post-standard
 | Debugging | Stack traces fragmented | Stack traces fragmented |
 | Encapsulation | Poor (leaky templates) | Excellent (hidden state) |
 | Customization | Explicit allocator parameters | Trait-based detection |
-| Compiler optimization | Uniform | Clang >> MSVC |
+| Compiler optimization | **Highly compiler-dependent** | Clang >> MSVC ≈ GCC |
 | I/O state location | Per-operation or preallocated | Preallocated (one indirection) |
 | ABI stability | Types leak through templates | Stable (platform types hidden) |
+| Nested move cost | ~280 bytes moved per I/O (Clang) | ~24 bytes assigned per I/O |
 
 ---
 
@@ -1051,9 +1147,9 @@ We have demonstrated a coroutine-first asynchronous I/O framework that achieves:
 4. **Zero steady-state allocations**: Frame pooling and recycling eliminate allocation overhead
 5. **Conscious encapsulation tradeoff**: One pointer indirection buys ABI stability, fast compilation, and readable interfaces
 
-The affine awaitable protocol—injecting execution context through `await_transform`—provides the mechanism. Coroutines are not free, but for I/O-bound workloads where operations take microseconds, the 1.5-2.6× overhead vanishes into the noise.
+The affine awaitable protocol—injecting execution context through `await_transform`—provides the mechanism. Dispatch overhead is compiler-dependent (§10.2) but negligible compared to real I/O latency in all cases.
 
-The comparison with `std::execution` is instructive. That framework uses backward queries to discover execution context (`get_domain`, `get_completion_scheduler`) and requires elaborate machinery (P3826) to fix the resulting problems—problems networking doesn't have. Our design sidesteps these issues: context flows forward, I/O objects need no executor template parameters, and algorithm customization is unnecessary because networking has one implementation per platform.
+The comparison with `std::execution` (§2.5) is instructive: that framework's complexity serves GPU workloads, not networking. Our design sidesteps those issues entirely—context flows forward, and algorithm customization is unnecessary because TCP servers don't run on GPUs.
 
 This divergence suggests that **networking deserves first-class design consideration**, not adaptation to frameworks optimized for GPU workloads. The future of asynchronous C++ need not be a single universal abstraction—it may be purpose-built frameworks that excel at their primary use cases while remaining interoperable at the boundaries.
 
@@ -1067,8 +1163,15 @@ This divergence suggests that **networking deserves first-class design considera
 4. [P2762R2](https://wg21.link/p2762) — Sender/Receiver Interface for Networking (Dietmar Kühl)
 5. [P3552R3](https://wg21.link/p3552) — Add a Coroutine Task Type (Dietmar Kühl, Maikel Nadolski)
 6. [P3826R2](https://wg21.link/p3826) — Fix or Remove Sender Algorithm Customization (Lewis Baker, Eric Niebler)
-7. [Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html) — Asynchronous I/O library (Chris Kohlhoff)
-8. [Asymmetric Transfer](https://lewissbaker.github.io/) — Blog series on C++ coroutines (Lewis Baker)
+7. [Affine Awaitables](https://github.com/cppalliance/wg21-papers/blob/master/affine-awaitables.md) — Zero-Overhead Scheduler Affinity for the Rest of Us (Vinnie Falco)
+8. [Affine Awaitable Protocol](https://github.com/cppalliance/wg21-papers/blob/master/affine-awaitable-protocol.md) — Formal protocol specification (Vinnie Falco)
+9. [Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html) — Asynchronous I/O library (Chris Kohlhoff)
+10. [Asymmetric Transfer](https://lewissbaker.github.io/) — Blog series on C++ coroutines (Lewis Baker)
+11. [Cost Analysis](https://github.com/cppalliance/wg21-papers/blob/master/coro-first-io/COST.md) — Detailed analysis of callback vs coroutine performance and the nested move-construction problem
+12. [Benchmark Source](https://github.com/cppalliance/wg21-papers/blob/master/coro-first-io/bench.cpp) — Source code for performance measurements
+13. [P3185](https://wg21.link/p3185) — A proposed direction for C++ Standard Networking based on IETF TAPS (Thomas Rodgers)
+14. [P3482](https://wg21.link/p3482) — Design for C++ networking based on IETF TAPS (Thomas Rodgers, Dietmar Kühl)
+15. [IETF TAPS versus Boost.Asio](https://github.com/cppalliance/wg21-papers/blob/master/ietf-taps-vs-asio.md) — Analysis of framework-first vs use-case-first design approaches
 
 ---
 
