@@ -18,6 +18,7 @@ audience: EWG
 ### R0: March 2026 (Croydon)
 
 - Initial version.
+- Corrected imprecise ballot characterization in Section 4 ("none has achieved consensus" replaced with "each was rejected") and added Section 5 on the distinction between consensus against and no consensus.
 
 ---
 
@@ -77,19 +78,27 @@ On 2025-02-13, LWG forwarded [P2900R14](https://wg21.link/p2900r14)<sup>[2]</sup
 
 On 2025-02-16, plenary adopted [P2900R14](https://wg21.link/p2900r14)<sup>[2]</sup> into the C++26 Working Paper with strong consensus ([P2899R1](https://wg21.link/p2899r1)<sup>[3]</sup>).
 
-[P2900R14](https://wg21.link/p2900r14)<sup>[2]</sup> (published 2025-02-13) remains the latest revision. The changes applied since adoption - the removal of `evaluation_exception()` via [P3819R0](https://wg21.link/p3819r0)<sup>[9]</sup> and the addition of a feature test macro via [P3886R0](https://wg21.link/p3886r0)<sup>[10]</sup> - are NB comment resolutions that narrow or clarify the facility. The core design is unchanged. Multiple proposals to modify the design have been presented since adoption; none has achieved consensus ([P3846R0](https://wg21.link/p3846r0)<sup>[4]</sup>).
+[P2900R14](https://wg21.link/p2900r14)<sup>[2]</sup> (published 2025-02-13) remains the latest revision. The changes applied since adoption - the removal of `evaluation_exception()` via [P3819R0](https://wg21.link/p3819r0)<sup>[9]</sup> and the addition of a feature test macro via [P3886R0](https://wg21.link/p3886r0)<sup>[10]</sup> - are NB comment resolutions that narrow or clarify the facility. The core design is unchanged. Multiple proposals to modify the design have been presented since adoption; each was rejected ([P3846R0](https://wg21.link/p3846r0)<sup>[4]</sup>).
 
 `constexpr` shipped as a minimal language feature in C++11 ([N2235](https://open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2235.pdf)<sup>[5]</sup>). C++14 relaxed its constraints dramatically ([N3652](https://open-std.org/jtc1/sc22/wg21/docs/papers/2013/n3652.html)<sup>[6]</sup>). The MVP model - ship a minimal language feature in one standard, expand it in the next - is established WG21 practice.
 
 ---
 
-## 5. The Paradox
+## 5. Framing
+
+A committee poll produces one of three outcomes: consensus for, consensus against, or no consensus. These are not interchangeable. Consensus against a proposal is an affirmative decision - the committee considered the question and answered it. No consensus means the committee did not reach a decision in either direction.
+
+[P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> describes prior ballot outcomes without distinguishing between these cases. The EWG poll on removing Contracts from C++26 was not "no consensus." It was consensus against removal. The proposals to modify the adopted design were not merely unsuccessful - they were rejected. Characterizing consensus against as the absence of consensus erases the committee's decision.
+
+---
+
+## 6. The Paradox
 
 [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> recommends deferral to allow "implementation and deployment experience." Language features do not receive widespread deployment outside standards. The Concepts TS (ISO/IEC TS 19217:2015<sup>[7]</sup>) demonstrated this: the TS was withdrawn, and Concepts were redesigned and shipped directly in C++20. [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> prescribes the condition it claims to remedy.
 
 ---
 
-## 6. Procedure
+## 7. Procedure
 
 [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> (dated 2026-03-07) does not appear in any official WG21 mailing. The 2026-02 pre-Croydon mailing (released 2026-02-23) contains papers through [P4032R0](https://wg21.link/p4032r0)<sup>[8]</sup>. The paper presents no proposed solution to the one outstanding NB comment (RO 2-056).
 
