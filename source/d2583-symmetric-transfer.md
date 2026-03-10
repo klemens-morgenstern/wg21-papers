@@ -685,6 +685,8 @@ Two open questions require LWG expertise:
 In [exec.async.ops] paragraph 6, after "A valid invocation of a completion function is called a *completion operation*," add:
 
 > A completion function returns `std::coroutine_handle<>`. A null handle indicates that no symmetric transfer is needed. A non-null handle designates a coroutine to be resumed.
+>
+> *[Note: A null handle is used rather than `noop_coroutine()` to avoid an unconditional `.resume()` call on the asynchronous completion path. The `sender-awaitable` bridge converts a null handle to `noop_coroutine()` at the `await_suspend` boundary, where the language requires it. -- end note]*
 
 ### 15.3 [exec.set.value], [exec.set.error], [exec.set.stopped]
 

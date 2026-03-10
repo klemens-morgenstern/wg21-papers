@@ -35,7 +35,7 @@ The question this paper addresses is narrow: does [P4043R0](https://wg21.link/p4
 4. Deferral would allow implementation and deployment experience.
 5. The committee should reconsider the shipping vehicle.
 
-Claims 1 through 4 are offered as evidence for claim 5. Sections 2 through 6 examine each claim in order. Section 7 addresses a recurring terminological error. Section 8 addresses procedural concerns.
+Claims 1 through 4 are offered as evidence for claim 5. Sections 2 through 6 examine each claim in order. Section 7 addresses procedural concerns.
 
 The author has no involvement in the C++ Contracts facility and holds no position on its design.
 
@@ -100,6 +100,8 @@ The following table maps each claim to the prior papers that raised it and the c
 
 [P4020R0](https://wg21.link/p4020r0)<sup>[20]</sup> ("Concerns about contract assertions") appeared in the 2026-02 pre-Croydon mailing and has not yet been discussed. It recommends no specific action beyond observing that "there are just 2 coherent actions" - keep Contracts or remove them. [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> cites it but does not engage with its analysis.
 
+A note on terminology: a committee poll produces one of three outcomes - consensus for, consensus against, or no consensus - and these are not interchangeable. Consensus against a proposal is an affirmative decision; no consensus means the committee did not reach a decision in either direction. [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> states that proposals "have not yet achieved consensus" and that "none has yet reached consensus." The EWG poll on removing Contracts from C++26 was not "no consensus." It was consensus against removal. The proposals to modify the adopted design were not merely unsuccessful - they were rejected. Characterizing consensus against as the absence of consensus erases the committee's decision.
+
 ---
 
 ## 4. Outstanding NB Comments
@@ -140,23 +142,13 @@ Since adoption, multiple proposals to modify the design have been presented; eac
 
 ---
 
-## 7. Consensus Terminology
-
-A committee poll produces one of three outcomes: consensus for, consensus against, or no consensus. These are not interchangeable.
-
-Consensus against a proposal is an affirmative decision - the committee considered the question and answered it. No consensus means the committee did not reach a decision in either direction.
-
-[P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> states that proposals "have not yet achieved consensus" and that "none has yet reached consensus." The EWG poll on removing Contracts from C++26 was not "no consensus." It was consensus against removal. The proposals to modify the adopted design were not merely unsuccessful - they were rejected. Characterizing consensus against as the absence of consensus erases the committee's decision.
-
----
-
-## 8. Procedural Concerns
+## 7. Procedural Concerns
 
 [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> (dated 2026-03-07) does not appear in any official WG21 mailing. The 2026-02 pre-Croydon mailing (released 2026-02-23) contains papers through [P4032R0](https://wg21.link/p4032r0)<sup>[27]</sup>. The paper was simultaneously posted to Reddit. The paper presents no proposed solution to the one outstanding NB comment (RO 2-056).
 
 ---
 
-## 9. Conclusion
+## 8. Conclusion
 
 [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> presents no new implementation result, no new deployment observation, and no new design analysis. The two post-adoption changes to the Working Draft are routine NB comment resolutions. The extensive discussion around RO 2-056 produced no design change and reinforced consensus for the adopted design. The alternative vehicles the paper suggests - C++29, a TS, a White Paper - have been considered and rejected, and [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> provides no new basis for revisiting those decisions. The committee adopted [P2900R14](https://wg21.link/p2900r14)<sup>[2]</sup> with strong consensus. Nothing in [P4043R0](https://wg21.link/p4043r0)<sup>[1]</sup> warrants reversing that decision.
 
@@ -164,7 +156,7 @@ Consensus against a proposal is an affirmative decision - the committee consider
 
 ## Acknowledgements
 
-The author thanks Joshua Berne for detailed feedback on the structure and content of this paper.
+The author thanks Joshua Berne for detailed feedback on the structure and content of this paper, and Darius Nea&#355;u for factual corrections on the reflector.
 
 ---
 
