@@ -165,12 +165,68 @@ Rules for all work on WG21 papers in this repository.
       section - update all citations when references are
       added, removed, or renumbered
 
+## Proposed Wording Sections
+
+36. Proposed wording uses Pandoc fenced divs and HTML
+    `<ins>`/`<del>` elements styled by `tools/paperstyle.css`.
+    Three div classes are available:
+
+    - `:::wording` - unchanged spec text (gray box, gray
+      left border). Inline code inherits neutral color
+    - `:::wording-add` - purely additive text (green box,
+      green left border, green text)
+    - `:::wording-remove` - purely removed text (red box,
+      red left border, red strikethrough text)
+
+    For mixed changes (unchanged text with inline additions
+    or deletions), wrap the block in `:::wording` and mark
+    individual changes with `<ins>` (green underline) or
+    `<del>` (red strikethrough).
+
+    Do not use the dual-blockquote pattern (separate
+    "Current text:" and "Proposed text:" blockquotes).
+    Do not use separate "Current:" and "Proposed:" fenced
+    code blocks for code changes. Always use the inline
+    `<ins>`/`<del>` convention described here instead
+
+37. Fenced div formatting rules:
+
+    - No space between `:::` and the class name:
+      `:::wording` not `::: wording`
+    - Blank line after the opening `:::wording*` marker
+    - Blank line before the closing `:::`
+    - Do not use blockquote `>` syntax inside wording
+      divs - use plain paragraphs. The div provides
+      visual framing
+    - Markdown formatting (`*italic*`, `` `code` ``)
+      works normally inside wording divs
+
+38. Code diffs in wording sections use raw HTML
+    `<pre><code>` blocks (not fenced `` ``` `` blocks)
+    inside a `:::wording` div, with `<ins>` and `<del>`
+    for inline changes. Angle brackets in code must be
+    escaped as `&lt;`/`&gt;`. Example:
+
+    ```
+    :::wording
+
+    <pre><code><del>void</del><ins>coroutine_handle&lt;&gt;</ins> await_suspend(
+        coroutine_handle&lt;Promise&gt;) noexcept
+    {
+        <del>start(state);</del>
+        <ins>auto h = start(state);</ins>
+        <ins>return h ? h : noop_coroutine();</ins>
+    }</code></pre>
+
+    :::
+    ```
+
 ## Tone
 
-36. Do not present options as predetermined conclusions. When
+39. Do not present options as predetermined conclusions. When
     recommending alternatives to a committee, present them as options
     to contemplate, not dictated outcomes
-37. Avoid politically charged comparisons - do not invoke other
+40. Avoid politically charged comparisons - do not invoke other
     contentious features as analogies unless the comparison is
     structurally precise. If the structures being compared are
     fundamentally different, the analogy will be perceived as
