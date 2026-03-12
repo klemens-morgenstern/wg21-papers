@@ -9,7 +9,7 @@ audience: LEWG
 
 ## Abstract
 
-Asynchronous operations partition naturally into two classes based on their error semantics. Infrastructure operations have binary outcomes: the operation executed or it did not. I/O operations produce compound results: a status classification and associated data, always paired. This paper identifies the partition and examines the sender three-channel model against it. This paper is informational and proposes no action.
+Operations partition naturally into two classes based on their postcondition structure. Infrastructure operations have binary outcomes: the postcondition was satisfied or it was not. Compound-result operations produce a status classification and associated data, always paired. The partition is not specific to asynchronous programming - `std::from_chars` and POSIX `read()` exhibit the same split. The partition becomes a concrete problem when the sender three-channel model forces a routing decision that synchronous return values do not face. This paper identifies the partition and examines the three-channel model against it. This paper is informational and proposes no action.
 
 ---
 
@@ -29,34 +29,39 @@ The author developed [P4007R0](https://wg21.link/p4007r0)<sup>[6]</sup> ("Sender
 
 ## 2. The Partition
 
-Asynchronous operations fall into two classes based on what their errors mean.
+Operations fall into two classes based on their postcondition structure. The partition is not about asynchrony. It is about what the operation promises to return.
 
 ### 2.1 Infrastructure Operations
 
-Launch, schedule, dispatch, allocate, enqueue. The operation either executes or it does not. An error means the postcondition was violated.
+Launch, schedule, dispatch, allocate, enqueue, open. The operation either executes or it does not. An error means the postcondition was violated.
 
 | Operation          | Success                | Failure                  |
 | ------------------ | ---------------------- | ------------------------ |
+| `malloc`           | Block returned         | Allocation failed        |
+| `fopen`            | File handle returned   | Open failed              |
+| `pthread_create`   | Thread running         | Creation failed          |
 | GPU kernel launch  | Kernel running         | Launch failed            |
 | Thread pool submit | Task queued            | Pool exhausted           |
 | Timer arm          | Timer armed            | Resource limit           |
-| Memory allocate    | Block returned         | Allocation failed        |
 | Mutex acquire      | Lock held              | Deadlock / timeout       |
 
-Every row is binary. Success is one thing. Failure is another. There is no middle ground, no partial outcome, no compound result. The operation either satisfied its postcondition or it did not.
+Every row is binary. Success is one thing. Failure is another. There is no middle ground, no partial outcome, no compound result. The operation either satisfied its postcondition or it did not. This is true whether the operation is synchronous (`malloc`, `fopen`) or asynchronous (GPU launch, timer arm).
 
-### 2.2 I/O Operations
+### 2.2 Compound-Result Operations
 
-Read, write, connect, accept, send, receive. The operation always completes. The result is a classification of what happened, paired with associated data.
+Read, write, connect, accept, parse, convert. The operation completes and returns a classification of what happened, paired with associated data.
 
-| Operation | Result                       |
-| --------- | ---------------------------- |
-| Read      | `(status, bytes_transferred)` |
-| Write     | `(status, bytes_written)`     |
-| Connect   | `(status)`                    |
-| Accept    | `(status, peer_socket)`       |
+| Operation        | Result                        |
+| ---------------- | ----------------------------- |
+| `read`           | `(status, bytes_transferred)` |
+| `write`          | `(status, bytes_written)`     |
+| `from_chars`     | `(ptr, errc)`                 |
+| `strtol`         | `(value, endptr, errno)`      |
+| `accept`         | `(status, peer_socket)`       |
 
-The status code is not evidence of a postcondition violation. It is the postcondition. `read(fd, buf, n)` promises to report what happened on the descriptor. Every status code fulfills that promise:
+`std::from_chars` is synchronous. `read` may be synchronous or asynchronous. Both return compound results where the status and the associated data are inseparable. The partition follows from postcondition structure, not from how the operation is dispatched.
+
+The status code is not evidence of a postcondition violation. It is the postcondition. `read(fd, buf, n)` promises to report what happened on the descriptor. `from_chars(first, last, value)` promises to report how far it parsed and whether parsing succeeded. Every status code fulfills that promise:
 
 | error_code    | bytes | What happened  | Postcondition violated? |
 | ------------- | ----- | -------------- | ----------------------- |
@@ -69,9 +74,9 @@ The status code is not evidence of a postcondition violation. It is the postcond
 
 Only `EBADF`-class errors - invalid file descriptor, bad address, not a socket - are postcondition violations. Every other outcome is the operation correctly reporting the state of the world.
 
-### 2.3 The OS Delivers Pairs
+### 2.3 Compound Results in Practice
 
-This is not a design preference. It is how operating systems report I/O completions:
+The compound-result pattern is not a design preference. It is how systems report outcomes when the result carries more than a boolean:
 
 - **io_uring.** Each completion queue entry (CQE) carries `res` (byte count or negative errno) and `flags`. One structure. One dequeue. The kernel does not route success and failure to different queues.
 
@@ -79,7 +84,19 @@ This is not a design preference. It is how operating systems report I/O completi
 
 - **POSIX.** `read()` returns `ssize_t`. On success, the byte count. On failure, `-1` with `errno` set. Both values are available at the same call site.
 
-Three OS families, three different APIs, the same shape: status and data arrive as a pair because they are a single result.
+- **C++ Standard Library.** `std::from_chars` returns `from_chars_result{ptr, ec}`. The pointer and the error code arrive together in one struct. The caller inspects both at the same call site.
+
+Three OS families, the C++ standard library, the same shape: status and data arrive as a pair because they are a single result.
+
+### 2.4 Where the Partition Becomes a Problem
+
+For synchronous code, compound results are straightforward. The function returns a struct or a tuple. The caller inspects both fields at the same call site. No routing decision is required.
+
+C++ has had two channels since exceptions were introduced: `return` and `throw`. They are mutually exclusive execution paths. When a function throws, the return value is destroyed. For compound-result operations, this is the same structural problem: a `write` that throws on `ECONNRESET` destroys the 500-byte transfer count the application needed.
+
+The industry solved this decades ago: use the value channel whenever the result is not 100% failure. `std::from_chars` returns `{ptr, errc}` instead of throwing on parse failure. POSIX `read()` returns a byte count instead of raising a signal on EOF. Asio returns `(error_code, size_t)` as a pair. The error channel - `throw` - is reserved for genuine postcondition violations: `EBADF`, bad address, not a socket. Everything else goes through the value channel, keeping the pair intact. The reason is not performance. It is information preservation.
+
+The sender three-channel model reintroduced the problem the industry had already learned to avoid - and extended it from two channels to three. `set_value`, `set_error`, and `set_stopped` are mutually exclusive execution paths. A compound result that was a single return value must now be split across channels. The remaining sections examine what happens when the three-channel model meets each side of the partition.
 
 ---
 
@@ -115,9 +132,9 @@ The three-channel model is correct for this class. `std::execution` serves it we
 
 ---
 
-## 4. The I/O Error Model
+## 4. The Compound-Result Error Model
 
-For I/O operations, the postcondition is: "return the outcome classification and associated data." This postcondition is always satisfied. The operation always reports what happened.
+For compound-result operations, the postcondition is: "return the outcome classification and associated data." This postcondition is always satisfied. The operation always reports what happened.
 
 The status code is not a failure signal. It is a vocabulary:
 
@@ -239,31 +256,36 @@ There is no fourth position. The three-channel model either loses data, becomes 
 
 ## 7. Domain Boundary
 
-The finding is not that the three-channel model is wrong. It is that the model has a domain.
+The finding is not that the three-channel model is wrong. It is that the model has a domain. The partition exists independent of asynchrony. The channel problem exists because the sender model forces a routing decision.
 
-| Domain         | Error model    | Three-channel model fits? |
-| -------------- | -------------- | ------------------------- |
-| GPU dispatch   | Infrastructure | Yes                       |
-| Thread pool    | Infrastructure | Yes                       |
-| Timer          | Infrastructure | Yes                       |
-| Allocator      | Infrastructure | Yes                       |
-| Read / Write   | I/O            | No                        |
-| Connect/Accept | I/O            | No                        |
-| DNS resolve    | I/O            | No                        |
+| Domain           | Sync/Async | Error model      | Three-channel model fits? |
+| ---------------- | ---------- | ---------------- | ------------------------- |
+| `malloc`         | Sync       | Infrastructure   | Yes                       |
+| `fopen`          | Sync       | Infrastructure   | Yes                       |
+| GPU dispatch     | Async      | Infrastructure   | Yes                       |
+| Thread pool      | Async      | Infrastructure   | Yes                       |
+| Timer            | Async      | Infrastructure   | Yes                       |
+| `from_chars`     | Sync       | Compound-result  | No                        |
+| `strtol`         | Sync       | Compound-result  | No                        |
+| Read / Write     | Either     | Compound-result  | No                        |
+| Connect / Accept | Either     | Compound-result  | No                        |
+| DNS resolve      | Either     | Compound-result  | No                        |
 
-`std::execution` was built at NVIDIA for compile-time work graphs and GPU dispatch<sup>[8]</sup>. Those are infrastructure operations with binary outcomes. The model is correct for its design domain.
-
-Dietmar K&uuml;hl - the author of [P3552R3](https://wg21.link/p3552r3)<sup>[5]</sup> (`std::execution::task`) and [P2762R2](https://wg21.link/p2762r2)<sup>[3]</sup> (sender/receiver networking) - described his own I/O error dispatch mechanism on the LEWG reflector (March 12, 2026): "My answer does somewhat appall me, especially having created this - er - solution!" He was demonstrating the four different syntactic mechanisms required to dispatch to the three channels from a coroutine. The task author's own assessment of what happens when the infrastructure error model meets I/O.
+The reference implementation of `std::execution`<sup>[8]</sup> targets compile-time work graphs and GPU dispatch. Those are infrastructure operations with binary outcomes. The model is correct for its design domain. The compound-result operations - whether synchronous or asynchronous - are outside that domain.
 
 ---
 
 ## 8. Conclusion
 
-Two error models exist. They are not a matter of taste. They follow from the structure of the operations.
+Two error models exist. They are not a matter of taste. They follow from the postcondition structure of the operations. The partition is not about asynchrony.
 
-Infrastructure operations have binary postconditions. The three-channel model maps them cleanly. I/O operations produce compound results where the status code and the associated data are inseparable. The three-channel model cannot represent them without losing data, bypassing the channels, or redefining what the channels mean.
+Infrastructure operations have binary postconditions: satisfied or violated. `malloc` returns a pointer or null. A GPU kernel launches or it does not. The three-channel model maps these cleanly.
 
-The partition is the same one Chris Kohlhoff identified in 2021<sup>[2]</sup>. It is the same one every OS kernel enforces by delivering status and byte count as a single completion. It is the reason Asio delivers `(error_code, size_t)` as a pair. It is not new. It is forty years old.
+Compound-result operations produce a status classification paired with associated data. `from_chars` returns `{ptr, errc}`. `read` returns `(status, bytes_transferred)`. The status code is the postcondition, not evidence of its violation. The three-channel model cannot represent these results without losing data, bypassing the channels, or redefining what the channels mean.
+
+Synchronous code handles compound results naturally - the function returns a struct and the caller inspects both fields. The partition becomes a problem when the sender three-channel model forces a routing decision that splits the pair before the application sees it.
+
+The partition is the same one Chris Kohlhoff identified in 2021<sup>[2]</sup>. It is the same one every OS kernel enforces by delivering status and byte count as a single completion. It is the reason `std::from_chars` returns a struct with two fields. It is the reason Asio delivers `(error_code, size_t)` as a pair. It is not new. It is forty years old.
 
 ---
 
@@ -283,6 +305,6 @@ The partition is the same one Chris Kohlhoff identified in 2021<sup>[2]</sup>. I
 
 7. [bemanproject/net](https://github.com/bemanproject/net) - Sender/receiver networking library. https://github.com/bemanproject/net
 
-8. [stdexec](https://github.com/NVIDIA/stdexec) - NVIDIA reference implementation of std::execution. https://github.com/NVIDIA/stdexec
+8. [stdexec](https://github.com/NVIDIA/stdexec) - Reference implementation of std::execution. https://github.com/NVIDIA/stdexec
 
 9. IEEE Std 1003.1 - POSIX `read()` / `write()` specification. https://pubs.opengroup.org/onlinepubs/9799919799/
