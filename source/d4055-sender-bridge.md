@@ -1,6 +1,6 @@
 ---
 title: "Consuming Senders from Coroutine-Native Code"
-document: D4055R0
+document: P4055R0
 date: 2026-03-13
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"

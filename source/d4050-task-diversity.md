@@ -1,6 +1,6 @@
 ---
 title: "On Task Type Diversity"
-document: D4050R0
+document: P4050R0
 date: 2026-03-11
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"

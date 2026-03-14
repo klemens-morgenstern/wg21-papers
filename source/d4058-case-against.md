@@ -1,6 +1,6 @@
 ---
 title: "The Case Against std::execution For Networking"
-document: D4058R0
+document: P4058R0
 date: 2026-03-13
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
@@ -69,15 +69,15 @@ Kohlhoff identified the problem in 2021. K&uuml;hl documented it in 2023. Kirk S
 
 Four sender-based TCP echo servers were constructed from the C++26 specification ([P2300R10](https://wg21.link/p2300r10)<sup>[3]</sup>, [P3552R3](https://wg21.link/p3552r3)<sup>[4]</sup>) and compared against a coroutine-native echo server. The echo server is deliberately minimal. The compound-result problem is per-operation - adding protocol complexity adds more call sites with the same trade-off, not a different one.
 
-Approach A1 routes both values through `set_value`. Both values visible. No exceptions. But `set_error` serves no purpose - `when_all` does not cancel siblings on I/O failure, `upon_error` is unreachable, `retry` does not fire. The three-channel model reduces to one channel.
+"Just use `set_value`" ([D4053R0](https://wg21.link/d4053r0)<sup>[10]</sup> Section 5) routes both values through `set_value`. Both values visible. No exceptions. But `set_error` serves no purpose - `when_all` does not cancel siblings on I/O failure, `upon_error` is unreachable, `retry` does not fire. The three-channel model reduces to one channel.
 
-Approach A2 routes the error code through `set_error` and captures the byte count in shared state. All three channels in use. But the byte count bypasses the channels - `retry` fires on `set_error` but the byte count reflects the previous stage, not the failed one. Shared mutable state across continuation boundaries reintroduces the hazard the sender model was designed to eliminate.
+"Just split the result" ([D4053R0](https://wg21.link/d4053r0)<sup>[10]</sup> Section 6) routes the error code through `set_error` and captures the byte count in shared state. All three channels in use. But the byte count bypasses the channels - `retry` fires on `set_error` but the byte count reflects the previous stage, not the failed one. Shared mutable state across continuation boundaries reintroduces the hazard the sender model was designed to eliminate.
 
-Approach B routes errors through `set_error`. Channel-based composition works. But every `ECONNRESET` requires `make_exception_ptr` plus `rethrow_exception`. The byte count is destroyed. 500 of 1,000 bytes written before a connection reset - gone.
+"Just use `set_error`" ([D4053R0](https://wg21.link/d4053r0)<sup>[10]</sup> Section 7) routes errors through `set_error`. Channel-based composition works. But every `ECONNRESET` requires `make_exception_ptr` plus `rethrow_exception`. The byte count is destroyed. 500 of 1,000 bytes written before a connection reset - gone.
 
-Approach C decomposes with `let_value`. The handler sees both values. Classification happens with full application context. But `set_error` takes a single argument. The byte count is destroyed when the error code crosses into the error channel. The decomposition point moved from the I/O layer to the application. The information loss did not.
+"Just decompose it" ([D4053R0](https://wg21.link/d4053r0)<sup>[10]</sup> Section 8) decomposes with `let_value`. The handler sees both values. Classification happens with full application context. But `set_error` takes a single argument. The byte count is destroyed when the error code crosses into the error channel. The decomposition point moved from the I/O layer to the application. The information loss did not.
 
-No construction achieves both full data preservation and channel-based composition without shared state or exceptions. The invitation in [D4053R0](https://wg21.link/d4053r0)<sup>[10]</sup> Section 11 stands: construct a sender-based echo server that preserves compound I/O results, retains channel-based composition, and avoids exception round-trips, using C++26 facilities. We will incorporate any such construction and re-evaluate every finding.
+No construction achieves both full data preservation and channel-based composition without shared state or exceptions. The invitation in [D4053R0](https://wg21.link/d4053r0)<sup>[10]</sup> Section 13 stands: construct a sender-based echo server that preserves compound I/O results, retains channel-based composition without altering the completion signatures expected by generic sender algorithms from those algorithms' specified behavior, avoids exception round-trips, and uses only the algorithms and sender adapters specified in [P2300R10](https://wg21.link/p2300r10)<sup>[3]</sup>, [P3552R3](https://wg21.link/p3552r3)<sup>[4]</sup>, and [P3149R9](https://wg21.link/p3149r9)<sup>[24]</sup>. We will incorporate any such construction and re-evaluate every finding.
 
 **Four approaches. Four trade-offs. The coroutine-native approach pays none of them.**
 
@@ -228,3 +228,5 @@ The author thanks Steve Gerbino for co-developing the constructed comparison and
 22. [stdexec](https://github.com/NVIDIA/stdexec) - Reference implementation of std::execution. https://github.com/NVIDIA/stdexec
 
 23. [P3570R2](https://wg21.link/p3570r2) - "Optional variants in sender/receiver" (Fabio Fracassi, 2025). https://wg21.link/p3570r2
+
+24. [P3149R9](https://wg21.link/p3149r9) - "`async_scope` - Creating scopes for non-sequential concurrency" (Ian Petersen, Jessica Wong, Kirk Shoop, et al., 2025). https://wg21.link/p3149r9

@@ -1,6 +1,6 @@
 ---
 title: "Coroutine-Native I/O For C++29"
-document: D4048R0
+document: P4048R0
 date: 2026-03-09
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"

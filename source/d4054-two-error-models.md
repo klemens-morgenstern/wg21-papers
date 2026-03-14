@@ -1,6 +1,6 @@
 ---
 title: "Two Error Models"
-document: D4054R0
+document: P4054R0
 date: 2026-03-12
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
@@ -174,7 +174,7 @@ async_read(socket, buffer)
       });
 ```
 
-This works. But the result is now `set_value(expected<size_t, error_code>)`. The error code is inside the `expected`, invisible to `when_all`, `upon_error`, and `retry`. This is Approach A1 ([D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 5) with the pair wrapped in `std::expected` instead of delivered as two arguments. The channel-based composition algebra is bypassed. `let_error` is the same pattern in reverse: catch the error, re-emit through `set_value`. Both recover the pair by routing everything through `set_value`.
+This works. But the result is now `set_value(expected<size_t, error_code>)`. The error code is inside the `expected`, invisible to `when_all`, `upon_error`, and `retry`. This is "just use `set_value`" ([D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 5) with the pair wrapped in `std::expected` instead of delivered as two arguments. The channel-based composition algebra is bypassed. `let_error` is the same pattern in reverse: catch the error, re-emit through `set_value`. Both recover the pair by routing everything through `set_value`.
 
 The sender-native answer is `let_value`:
 
@@ -188,7 +188,7 @@ async_read(socket, buffer)
           });
 ```
 
-This is Approach C in [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 8. The handler sees both values. Classification happens with full application context. Downstream, `upon_error` is reachable, `when_all` cancels siblings, `retry` fires.
+This is "just decompose it" ([D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 8). The handler sees both values. Classification happens with full application context. Downstream, `upon_error` is reachable, `when_all` cancels siblings, `retry` fires.
 
 Now write 1,000 bytes. The kernel accepts 500 before the connection dies. The handler sees `(ECONNRESET, 500)`. It emits `just_error(ECONNRESET)`. The 500 is gone. `set_error` takes a single argument. The decomposition point moved from the I/O layer to the application. The information loss did not.
 
@@ -224,7 +224,7 @@ Both mappings demonstrate the same structural problem: any function from `(error
 
 ### 5.2 Prior Engagement
 
-Dietmar K&uuml;hl enumerated five channel-routing options for I/O in [P2762R2](https://wg21.link/p2762r2)<sup>[3]</sup> (Section 4.2), including fused `set_value(error_code, n)`, multiple `set_value` overloads, `set_error` routing, hybrid severity-based classification, and an `error_code` reference argument. K&uuml;hl acknowledged the partial-success problem directly: "some of the error cases may have been partial successes. In that case, using the set_error channel taking just one argument is somewhat limiting." He did not resolve it, noting that "when substantial work is done and partial successes become reasonable, it is likely that intermediate results are to be produced and algorithms of a different shape are used anyway." P2762R2 chose `set_error` routing (Approach B in [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup>) for its examples.
+Dietmar K&uuml;hl enumerated five channel-routing options for I/O in [P2762R2](https://wg21.link/p2762r2)<sup>[3]</sup> (Section 4.2), including fused `set_value(error_code, n)`, multiple `set_value` overloads, `set_error` routing, hybrid severity-based classification, and an `error_code` reference argument. K&uuml;hl acknowledged the partial-success problem directly: "some of the error cases may have been partial successes. In that case, using the set_error channel taking just one argument is somewhat limiting." He did not resolve it, noting that "when substantial work is done and partial successes become reasonable, it is likely that intermediate results are to be produced and algorithms of a different shape are used anyway." P2762R2 chose `set_error` routing ("just use `set_error`" in [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 7) for its examples.
 
 Kirk Shoop identified the same heuristic difficulty in [P2471R1](https://wg21.link/p2471r1)<sup>[10]</sup> ("NetTS, ASIO and Sender Library Design Comparison," 2021), observing that completion tokens translating to senders "must use a heuristic to type-match the first arg" and that the mapping creates "many different implementations of asSender."
 
@@ -242,7 +242,7 @@ Four positions are available to defend the three-channel model for I/O. Each con
 
 Argue that the byte count does not matter when an error occurs. This contradicts POSIX `write()`, Asio's twenty-year `(error_code, size_t)` convention, and network programming practice across every language that preserves compound results. Partial writes are normal.
 
-### 6.2 Route Everything Through `set_value`
+### 6.2 "Just Use `set_value`"
 
 Call `set_value(error_code, bytes)` for all outcomes. The pair stays intact. But `set_error` and `set_stopped` now serve no purpose for I/O senders. `retry`, `when_all`, `upon_error` cannot distinguish success from failure. The three-channel model reduces to one channel with a structured result. The channels are not wrong. They are irrelevant.
 
@@ -250,9 +250,9 @@ Call `set_value(error_code, bytes)` for all outcomes. The pair stays intact. But
 
 Route "routine" errors through `set_value` and "exceptional" errors through `set_error`. This requires a taxonomy that does not exist in any OS API, redefines `set_value` to include errors, and forces the classification at the I/O layer - before the application, the only code with enough context to classify correctly, has seen the result. `ECONNRESET` is fatal in one protocol and expected in another. No context-free classification can get this right.
 
-### 6.4 Decompose with `let_value`
+### 6.4 "Just Decompose It"
 
-The strongest sender-native response. Route everything through `set_value(error_code, bytes)`, pipe into `let_value`, inspect both values, re-route the error code to `set_error` (Section 5, Approach C in [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 8). The classification moves to application code with full protocol context.
+The strongest sender-native response. Route everything through `set_value(error_code, bytes)`, pipe into `let_value`, inspect both values, re-route the error code to `set_error` (Section 5, "just decompose it" in [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 8). The classification moves to application code with full protocol context.
 
 But `set_error` takes a single argument. The byte count is destroyed when the error code crosses into the error channel. The decomposition point moved from the I/O layer to the application. The information loss did not.
 
@@ -260,12 +260,12 @@ But `set_error` takes a single argument. The byte count is destroyed when the er
 
 Each position trades something the compound-result model preserves:
 
-- **(a)** trades I/O data for channel simplicity
-- **(b)** trades channel relevance for data preservation
-- **(c)** trades fixed channel semantics for a domain-specific classification
-- **(d)** trades error-path data for deferred, context-aware decomposition
+- **Accept the loss** (6.1) trades I/O data for channel simplicity
+- **"Just use `set_value`"** (6.2) trades channel relevance for data preservation
+- **Classify errors** (6.3) trades fixed channel semantics for a domain-specific classification
+- **"Just decompose it"** (6.4) trades error-path data for deferred, context-aware decomposition
 
-The author is not aware of a fifth position and welcomes counterexamples (see [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 11).
+The author is not aware of a fifth position and welcomes counterexamples (see [D4053R0](https://wg21.link/d4053r0)<sup>[5]</sup> Section 12).
 
 ---
 
