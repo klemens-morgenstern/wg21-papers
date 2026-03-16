@@ -12,7 +12,7 @@ audience: LEWG
 
 An `IoAwaitable` ([P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup>) can be wrapped as a `std::execution` sender. Awaitables returning `void` or a single value map to `set_value`. Awaitables returning `error_code` map to `set_value()` on success and `set_error(ec)` on failure - no exceptions. Awaitables returning compound I/O results - any tuple-like whose first element is `error_code` with additional elements - are rejected at compile time. The coroutine body is the translation layer: it inspects the compound result, reduces it to an `error_code`, and returns that. The bridge routes the `error_code` through the three channels without exceptions.
 
-This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://wg21.link/p4050r0)<sup>[14]</sup>, "On Task Type Diversity"; [P4053R0](https://wg21.link/p4053r0)<sup>[7]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://wg21.link/p4054r0)<sup>[13]</sup>, "Two Error Models"; [P4055R0](https://wg21.link/p4055r0)<sup>[6]</sup>, "Consuming Senders from Coroutine-Native Code"; and [P4058R0](https://wg21.link/p4058r0)<sup>[15]</sup>, "The Case for Coroutines."
+This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf)<sup>[14]</sup>, "On the Diversity of Coroutine Task Types"; [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[7]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[13]</sup>, "Two Error Models"; [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf)<sup>[6]</sup>, "Consuming Senders from Coroutine-Native Code"; and [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf)<sup>[15]</sup>, "The Case for Coroutines."
 
 ---
 
@@ -28,7 +28,7 @@ This paper is one of a suite of six that examines the relationship between compo
 
 The authors developed and maintain [Corosio](https://github.com/cppalliance/corosio)<sup>[5]</sup> and [Capy](https://github.com/cppalliance/capy)<sup>[3]</sup> and believe coroutine-native I/O is the correct foundation for networking in C++. The authors provide information, ask nothing, and serve at the pleasure of the chair.
 
-[Capy](https://github.com/cppalliance/capy)<sup>[3]</sup> is a coroutine primitives library. [P4055R0](https://wg21.link/p4055r0)<sup>[6]</sup> showed the sender-to-awaitable direction. This paper shows the reverse. The bridge depends on [Capy](https://github.com/cppalliance/capy)<sup>[3]</sup> and `beman::execution`<sup>[4]</sup>, a community implementation of `std::execution` ([P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup>). The complete implementation is in Appendix A.
+[Capy](https://github.com/cppalliance/capy)<sup>[3]</sup> is a coroutine primitives library. [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf)<sup>[6]</sup> showed the sender-to-awaitable direction. This paper shows the reverse. The bridge depends on [Capy](https://github.com/cppalliance/capy)<sup>[3]</sup> and `beman::execution`<sup>[4]</sup>, a community implementation of `std::execution` ([P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup>). The complete implementation is in Appendix A.
 
 The authors regard `std::execution` as an important contribution to C++ and support its standardization for the domains it serves well - GPU dispatch, heterogeneous execution, and compile-time work-graph composition among them. Nothing in this paper or its companions argues for removing, delaying, or diminishing `std::execution`. The authors' position is narrower: that networking and stream I/O present a compound-result structure that the three-channel model was not designed to carry, and that this domain is better served by a coroutine-native facility that can coexist with senders and interoperate where the domains meet. Two models, each correct for its domain, is a stronger standard than one model asked to serve both.
 
@@ -69,7 +69,7 @@ The delay ran on a pool worker. Zero allocation beyond the coroutine frame.
 
 The bridge works for `delay`. What about `read_some`?
 
-`read_some` returns `io_result<size_t>` - an `(error_code, size_t)` pair. The adapter must route this through three channels. The sender model provides three completion channels: `set_value` for success, `set_error` for failure, and `set_stopped` for cancellation. Algorithms like `when_all`, `upon_error`, and `retry` key on which channel fires. [P4053R0](https://wg21.link/p4053r0)<sup>[7]</sup> documented the trade-off: route the whole pair through `set_value` and the composition algebra is bypassed; decompose it and the byte count is destroyed on error because `set_error` carries only the `error_code`. Neither option preserves both values and retains composition. The same finding now appears inside the bridge adapter itself.
+`read_some` returns `io_result<size_t>` - an `(error_code, size_t)` pair. The adapter must route this through three channels. The sender model provides three completion channels: `set_value` for success, `set_error` for failure, and `set_stopped` for cancellation. Algorithms like `when_all`, `upon_error`, and `retry` key on which channel fires. [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[7]</sup> documented the trade-off: route the whole pair through `set_value` and the composition algebra is bypassed; decompose it and the byte count is destroyed on error because `set_error` carries only the `error_code`. Neither option preserves both values and retains composition. The same finding now appears inside the bridge adapter itself.
 
 There is a floor below which compound results should not cross into the sender channel model.
 
@@ -159,7 +159,7 @@ Cost: one coroutine frame per I/O operation that crosses the sender boundary. `a
 
 ## 7. P3552R3 Analysis
 
-[P3552R3](https://wg21.link/p3552r3)<sup>[12]</sup> defines `std::execution::task<T>`, a coroutine type that is also a sender. Its completion signature is `set_value_t(T)`. When `T` is `std::pair<error_code, size_t>`, the compound result lands on the value channel. This is "just use `set_value`" ([P4053R0](https://wg21.link/p4053r0)<sup>[7]</sup> Section 5): `upon_error` is unreachable, `when_all` does not cancel siblings on I/O failure, `retry` does not fire. The programmer who writes `task<std::pair<error_code, size_t>>` has silently opted into "just use `set_value`":
+[P3552R3](https://wg21.link/p3552r3)<sup>[12]</sup> defines `std::execution::task<T>`, a coroutine type that is also a sender. Its completion signature is `set_value_t(T)`. When `T` is `std::pair<error_code, size_t>`, the compound result lands on the value channel. This is "just use `set_value`" ([P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[7]</sup> Section 5): `upon_error` is unreachable, `when_all` does not cancel siblings on I/O failure, `retry` does not fire. The programmer who writes `task<std::pair<error_code, size_t>>` has silently opted into "just use `set_value`":
 
 ```cpp
 std::execution::task<
@@ -178,7 +178,7 @@ auto sndr = read_some_task(stream, buf)
         });
 ```
 
-`task` is general-purpose. A `static_assert` rejecting compound `error_code` results would be too broad. The constraint belongs at a bridge point with I/O intent, not on the general-purpose coroutine type. A programmer who uses `task<pair<error_code, size_t>>` directly gets the value-channel behavior documented in [P4053R0](https://wg21.link/p4053r0)<sup>[7]</sup> Section 5 - both values preserved, composition algebra bypassed.
+`task` is general-purpose. A `static_assert` rejecting compound `error_code` results would be too broad. The constraint belongs at a bridge point with I/O intent, not on the general-purpose coroutine type. A programmer who uses `task<pair<error_code, size_t>>` directly gets the value-channel behavior documented in [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[7]</sup> Section 5 - both values preserved, composition algebra bypassed.
 
 [P3552R3](https://wg21.link/p3552r3)<sup>[12]</sup> converts unhandled `set_error` to an exception via `AS-EXCEPT-PTR`. The observation is architectural: `as_sender` enforces the abstraction floor at the IoAwaitable-to-sender boundary. `task` does not enforce it. The programmer chooses where the floor lives.
 
@@ -229,9 +229,9 @@ The authors thank Dietmar K&uuml;hl for `beman::execution`<sup>[4]</sup> and for
 
 5. [cppalliance/corosio](https://github.com/cppalliance/corosio) - Coroutine-native networking library. https://github.com/cppalliance/corosio
 
-6. [P4055R0](https://wg21.link/p4055r0) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4055r0
+6. [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4055R0.pdf
 
-7. [P4053R0](https://wg21.link/p4053r0) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4053r0
+7. [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4053R0.pdf
 
 8. [P2762R2](https://wg21.link/p2762r2) - "Sender/Receiver Interface For Networking" (Dietmar K&uuml;hl, 2023). https://wg21.link/p2762r2
 
@@ -243,11 +243,11 @@ The authors thank Dietmar K&uuml;hl for `beman::execution`<sup>[4]</sup> and for
 
 12. [P3552R3](https://wg21.link/p3552r3) - "Add a Coroutine Task Type" (Dietmar K&uuml;hl, Maikel Nadolski, 2025). https://wg21.link/p3552r3
 
-13. [P4054R0](https://wg21.link/p4054r0) - "Two Error Models" (Vinnie Falco, 2026). https://wg21.link/p4054r0
+13. [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf) - "Two Error Models" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4054R0.pdf
 
-14. [P4050R0](https://wg21.link/p4050r0) - "On Task Type Diversity" (Vinnie Falco, 2026). https://wg21.link/p4050r0
+14. [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf) - "On the Diversity of Coroutine Task Types" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4050R0.pdf
 
-15. [P4058R0](https://wg21.link/p4058r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4058r0
+15. [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4058R0.pdf
 
 ---
 
@@ -317,10 +317,9 @@ struct has_tuple_protocol
 template<class T>
 struct has_tuple_protocol<T,
     std::void_t<
-        typename std::tuple_size<T>::type,
-        typename std::tuple_element<
-            0, T>::type>>
-    : std::true_type {};
+        typename std::tuple_size<T>::type>>
+    : std::bool_constant<
+        (std::tuple_size<T>::value > 0)> {};
 
 template<class T,
     bool = has_tuple_protocol<T>::value>

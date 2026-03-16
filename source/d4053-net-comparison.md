@@ -12,7 +12,7 @@ audience: LEWG
 
 Four sender-based TCP echo servers are constructed from [P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup> and [P3552R3](https://wg21.link/p3552r3)<sup>[2]</sup> and compared against a coroutine-native echo server. The sender composition algebra - `when_all` cancellation, `upon_error`, `retry` - does not apply to compound I/O results without losing data, requiring shared state, or converting routine errors to exceptions. One construction - "just use `set_value`" - preserves all data by bypassing the composition algebra entirely, producing code nearly identical to the coroutine version. Both paradigms are equivalent when compound results stay on the value channel. The composition algebra is the sender model's value proposition over coroutines - the reason to accept its additional complexity. If it does not apply to compound I/O results, the programmer pays the cost of the sender model and receives the coroutine model's behavior. The finding is about cost, not defect.
 
-This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://wg21.link/p4050r0)<sup>[15]</sup>, "On Task Type Diversity"; [P4054R0](https://wg21.link/p4054r0)<sup>[7]</sup>, "Two Error Models"; [P4055R0](https://wg21.link/p4055r0)<sup>[13]</sup>, "Consuming Senders from Coroutine-Native Code"; [P4056R0](https://wg21.link/p4056r0)<sup>[14]</sup>, "Producing Senders from Coroutine-Native Code"; and [P4058R0](https://wg21.link/p4058r0)<sup>[17]</sup>, "The Case for Coroutines."
+This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf)<sup>[15]</sup>, "On the Diversity of Coroutine Task Types"; [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[7]</sup>, "Two Error Models"; [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf)<sup>[13]</sup>, "Consuming Senders from Coroutine-Native Code"; [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[14]</sup>, "Producing Senders from Coroutine-Native Code"; and [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf)<sup>[17]</sup>, "The Case for Coroutines."
 
 ---
 
@@ -140,7 +140,7 @@ auto do_session(auto& sock, auto& buf)
 
 Nearly identical to Corosio. Both values visible. No exceptions. Wrapping the pair in `std::expected<size_t, error_code>` is a variant of this approach - the compound result stays on the value channel as a single value. The C++23 monadic operations on `expected` (`and_then`, `or_else`, `transform`) provide value-channel composition for the wrapped result. This is the same pattern: the programmer inspects the compound result with value-level operations, not with channel-level algorithms. `upon_error` does not see inside the `expected`. `retry` does not fire on it. `when_all` does not cancel siblings. The `expected` approach is "just use `set_value`" with monadic syntax. It belongs in the first column of the trade-off table.
 
-This is the sender instantiation of the industry advice documented in [P4054R0](https://wg21.link/p4054r0)<sup>[7]</sup>: use the value channel whenever the result is not 100% failure. POSIX, Asio, Go, and Rust all follow this convention. The coroutine-native echo server (Section 2) does the same thing - it returns `(error_code, size_t)` through the value channel and inspects both with `if (ec)`.
+This is the sender instantiation of the industry advice documented in [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[7]</sup>: use the value channel whenever the result is not 100% failure. POSIX, Asio, Go, and Rust all follow this convention. The coroutine-native echo server (Section 2) does the same thing - it returns `(error_code, size_t)` through the value channel and inspects both with `if (ec)`.
 
 The function signature says `std::execution::task<void>`. The body says `if (ec || wec) break`. The programmer is inside a sender coroutine, but the error handling is the coroutine model: structured bindings, `if`, `break`. No sender algorithm participates in the error decision. The sender machinery - `Environment`, `affine_on`, `AS-EXCEPT-PTR` - is present in the type but unused at the call site. To use it for I/O errors, the programmer must leave `if (ec)` and write pipes. Section 6 shows what that looks like: `co_await (async_read(...) | then([&](...) { ... }) | upon_error([&](...) { ... }))`. The function body now contains two programming models - `if (ec)` for the coroutine model and `| upon_error(...)` for the sender model - in the same scope. The unification promise holds for infrastructure operations where `co_await` hides the pipes. It breaks for compound I/O results where the pipes must be explicit.
 
@@ -374,7 +374,7 @@ The finding in this paper is limited to the I/O layer, where results are compoun
 
 A real networking application has both layers. The I/O layer produces `(error_code, size_t)`. The protocol layer consumes the I/O result, applies application logic, and produces a binary outcome (request succeeded / request failed). The composition algebra applies to the binary outcome, not to the compound I/O result.
 
-The question is where the reduction from compound to binary happens. Under "just use `set_value`," it happens inside a `let_value` handler or a coroutine body - the same place it happens in coroutine-native code. The composition algebra takes over after the reduction. This is the abstraction floor ([P4056R0](https://wg21.link/p4056r0)<sup>[14]</sup> Section 4): compound results below, binary outcomes above, composition algebra above the floor.
+The question is where the reduction from compound to binary happens. Under "just use `set_value`," it happens inside a `let_value` handler or a coroutine body - the same place it happens in coroutine-native code. The composition algebra takes over after the reduction. This is the abstraction floor ([P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[14]</sup> Section 4): compound results below, binary outcomes above, composition algebra above the floor.
 
 Both paradigms produce the binary outcome the composition algebra consumes. A coroutine body reduces `(error_code, size_t)` to a binary outcome with `if (ec)`. A `let_value` handler does the same. The composition algebra applies above the floor regardless of which paradigm produced the reduction below it. The sender model's additional complexity at the I/O layer does not change the binary outcome the protocol layer receives.
 
@@ -488,7 +488,7 @@ The echo server is deliberately minimal. The compound-result problem is per-oper
 
 ### Q2: Are these gaps being addressed by ongoing work?
 
-Several of the ergonomic issues documented here are the subject of active committee work, including [P3796R1](https://wg21.link/p3796r1)<sup>[18]</sup> and [D3980R0](https://wg21.link/d3980r0)<sup>[19]</sup>. The authors welcome that work. Voutilainen confirmed on the LEWG reflector (March 14, 2026)<sup>[20]</sup> that one needed facility is not yet in the standard:
+Several of the ergonomic issues documented here are the subject of active committee work, including [P3796R1](https://wg21.link/p3796r1)<sup>[18]</sup> and [P3980R0](https://wg21.link/p3980r0)<sup>[19]</sup>. The authors welcome that work. Voutilainen confirmed on the LEWG reflector (March 14, 2026)<sup>[20]</sup> that one needed facility is not yet in the standard:
 
 > "We do not need the dispatch() I spoke about before, but we do need the variant_sender."
 
@@ -601,7 +601,7 @@ Any person quoted in this paper who believes their words have been presented out
 
 6. [P3149R9](https://wg21.link/p3149r9) - "`async_scope` - Creating scopes for non-sequential concurrency" (Ian Petersen, Jessica Wong, Kirk Shoop, et al., 2025). https://wg21.link/p3149r9
 
-7. [P4054R0](https://wg21.link/p4054r0) - "Two Error Models" (Vinnie Falco, 2026). https://wg21.link/p4054r0
+7. [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf) - "Two Error Models" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4054R0.pdf
 
 8. IEEE Std 1003.1-2024 - POSIX `read()` / `write()` specification. https://pubs.opengroup.org/onlinepubs/9799919799/
 
@@ -613,18 +613,18 @@ Any person quoted in this paper who believes their words have been presented out
 
 12. [P3570R2](https://wg21.link/p3570r2) - "Optional variants in sender/receiver" (Fabio Fracassi, 2025). https://wg21.link/p3570r2
 
-13. [P4055R0](https://wg21.link/p4055r0) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4055r0
+13. [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4055R0.pdf
 
-14. [P4056R0](https://wg21.link/p4056r0) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4056r0
+14. [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4056R0.pdf
 
-15. [P4050R0](https://wg21.link/p4050r0) - "On Task Type Diversity" (Vinnie Falco, 2026). https://wg21.link/p4050r0
+15. [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf) - "On the Diversity of Coroutine Task Types" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4050R0.pdf
 
 16. Ville Voutilainen, [libunifex-with-qt](https://git.qt.io/vivoutil/libunifex-with-qt) - Qt/stdexec integration examples (2024). https://git.qt.io/vivoutil/libunifex-with-qt
 
-17. [P4058R0](https://wg21.link/p4058r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4058r0
+17. [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4058R0.pdf
 
 18. [P3796R1](https://wg21.link/p3796r1) - "Coroutine Task Issues" (Dietmar K&uuml;hl, 2025). https://wg21.link/p3796r1
 
-19. [D3980R0](https://wg21.link/d3980r0) - "Task's Allocator Use" (Dietmar K&uuml;hl, 2026). https://wg21.link/d3980r0
+19. [P3980R0](https://wg21.link/p3980r0) - "Task's Allocator Use" (Dietmar K&uuml;hl, 2026). https://wg21.link/p3980r0
 
 20. LEWG reflector (lib-ext), March 2026. Threads: "Complicated success at coroutine/sender composition boundaries" (http://lists.isocpp.org/lib-ext/2026/03/31375.php) and "std::execution - dynamically selecting a channel" (http://lists.isocpp.org/lib-ext/2026/03/31377.php). Compilable examples: Petersen's four sender implementations (https://godbolt.org/z/7W51hYE7c) and Voutilainen's channel ping-pong (https://godbolt.org/z/h5cv5fbTE).

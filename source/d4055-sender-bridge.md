@@ -12,7 +12,7 @@ audience: LEWG
 
 An `IoAwaitable` bridge ([P4003R0](https://wg21.link/p4003r0)<sup>[3]</sup>) consumes `std::execution` ([P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup>) senders with inline operation state, correct stop token propagation, and automatic executor dispatch-back. The bridge is one class template. The complete implementation is in Appendix A.
 
-This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://wg21.link/p4050r0)<sup>[13]</sup>, "On Task Type Diversity"; [P4053R0](https://wg21.link/p4053r0)<sup>[2]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://wg21.link/p4054r0)<sup>[11]</sup>, "Two Error Models"; [P4056R0](https://wg21.link/p4056r0)<sup>[12]</sup>, "Producing Senders from Coroutine-Native Code"; and [P4058R0](https://wg21.link/p4058r0)<sup>[14]</sup>, "The Case for Coroutines."
+This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf)<sup>[13]</sup>, "On the Diversity of Coroutine Task Types"; [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[2]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[11]</sup>, "Two Error Models"; [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[12]</sup>, "Producing Senders from Coroutine-Native Code"; and [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf)<sup>[14]</sup>, "The Case for Coroutines."
 
 ---
 
@@ -90,7 +90,7 @@ auto [ec, val] = co_await await_sender(sndr);
 
 No exceptions for `error_code`. Otherwise `await_resume` returns `T` directly; genuine exceptions are rethrown and cancellation is surfaced as an exception. Static dispatch, zero runtime cost. The `operation_cancelled` type in Appendix A is illustrative; a production implementation would use a project-appropriate cancellation exception.
 
-The error-code dispatch is the consuming side of the **abstraction floor** ([P4056R0](https://wg21.link/p4056r0)<sup>[12]</sup> Section 4):
+The error-code dispatch is the consuming side of the **abstraction floor** ([P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[12]</sup> Section 4):
 
 | Region          | What the code sees                           |
 | --------------- | -------------------------------------------- |
@@ -138,7 +138,7 @@ The authors thank Dietmar K&uuml;hl for `beman::execution`<sup>[5]</sup> and for
 
 1. [P2300R10](https://wg21.link/p2300r10) - "std::execution" (Micha&lstrok; Dominiak et al., 2024). https://wg21.link/p2300r10
 
-2. [P4053R0](https://wg21.link/p4053r0) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4053r0
+2. [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4053R0.pdf
 
 3. [P4003R0](https://wg21.link/p4003r0) - "Coroutines for I/O" (Vinnie Falco, Steve Gerbino, Mungo Gill, 2026). https://wg21.link/p4003r0
 
@@ -156,13 +156,13 @@ The authors thank Dietmar K&uuml;hl for `beman::execution`<sup>[5]</sup> and for
 
 10. [P3570R2](https://wg21.link/p3570r2) - "Optional variants in sender/receiver" (Fabio Fracassi, 2025). https://wg21.link/p3570r2
 
-11. [P4054R0](https://wg21.link/p4054r0) - "Two Error Models" (Vinnie Falco, 2026). https://wg21.link/p4054r0
+11. [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf) - "Two Error Models" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4054R0.pdf
 
-12. [P4056R0](https://wg21.link/p4056r0) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4056r0
+12. [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4056R0.pdf
 
-13. [P4050R0](https://wg21.link/p4050r0) - "On Task Type Diversity" (Vinnie Falco, 2026). https://wg21.link/p4050r0
+13. [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf) - "On the Diversity of Coroutine Task Types" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4050R0.pdf
 
-14. [P4058R0](https://wg21.link/p4058r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4058r0
+14. [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4058R0.pdf
 
 15. [P3552R3](https://wg21.link/p3552r3) - "Add a Coroutine Task Type" (Dietmar K&uuml;hl, Maikel Nadolski, 2025). https://wg21.link/p3552r3
 

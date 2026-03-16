@@ -13,7 +13,7 @@ C++20 coroutines provide five properties: type erasure through `coroutine_handle
 
 Combined, the five properties produce a substrate for serial byte-oriented I/O that resolves problems unique to C++: template explosion, compile-time cost, allocation control, and ABI instability. Type erasure plus compiler-managed state yields type-erased streams with zero per-operation allocation. Promise customization plus stackless frames yields frame allocator propagation before `operator new`. Symmetric transfer yields O(1) stack depth in deep coroutine chains. The synergy is not in any single property. It is in what the five produce together. This paper shows each property in working code, traces the causal chain from language mechanism to library design, and states the price.
 
-This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://wg21.link/p4050r0)<sup>[1]</sup>, "On Task Type Diversity"; [P4053R0](https://wg21.link/p4053r0)<sup>[2]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://wg21.link/p4054r0)<sup>[3]</sup>, "Two Error Models"; [P4055R0](https://wg21.link/p4055r0)<sup>[4]</sup>, "Consuming Senders from Coroutine-Native Code"; and [P4056R0](https://wg21.link/p4056r0)<sup>[5]</sup>, "Producing Senders from Coroutine-Native Code."
+This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf)<sup>[1]</sup>, "On the Diversity of Coroutine Task Types"; [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[2]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[3]</sup>, "Two Error Models"; [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf)<sup>[4]</sup>, "Consuming Senders from Coroutine-Native Code"; and [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[5]</sup>, "Producing Senders from Coroutine-Native Code."
 
 ---
 
@@ -347,7 +347,7 @@ Additional properties that ride on the same frame:
 
 - **Compile-time domain gate.** The two-argument `await_suspend(coroutine_handle<>, io_env const*)` is a deliberate trade-off. The alternative was a single-argument `await_suspend` that extracts the environment from the promise, costing one fewer parameter. The two-argument form was chosen because it buys compile-time enforcement: any awaitable that does not accept `io_env const*` is a type error inside an I/O task. Foreign awaitables that do not speak the I/O protocol are rejected by the compiler, not by a runtime mismatch. The pointer is the cost. The domain gate is the benefit. [IoAwaitable](https://github.com/cppalliance/capy/blob/p4058r0/include/boost/capy/concept/io_awaitable.hpp)<sup>[7]</sup>.
 
-- **Compound result preservation.** `auto [ec, n] = co_await sock.read_some(buf)`. Both values visible. No channel split. No data loss. The three-channel model routes results by channel. Compound results must choose a channel, losing data on the error path ([P4053R0](https://wg21.link/p4053r0)<sup>[2]</sup>, [P4054R0](https://wg21.link/p4054r0)<sup>[3]</sup>).
+- **Compound result preservation.** `auto [ec, n] = co_await sock.read_some(buf)`. Both values visible. No channel split. No data loss. The three-channel model routes results by channel. Compound results must choose a channel, losing data on the error path ([P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[2]</sup>, [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[3]</sup>).
 
 - **Symmetric transfer.** `await_suspend` returns `coroutine_handle<>`. O(1) stack depth regardless of chain length.
 
@@ -414,15 +414,15 @@ The author thanks Chris Kohlhoff for Asio's stream model, buffer sequences, and 
 
 ## References
 
-1. [P4050R0](https://wg21.link/p4050r0) - "On Task Type Diversity" (Vinnie Falco, 2026). https://wg21.link/p4050r0
+1. [P4050R0](https://isocpp.org/files/papers/P4050R0.pdf) - "On the Diversity of Coroutine Task Types" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4050R0.pdf
 
-2. [P4053R0](https://wg21.link/p4053r0) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4053r0
+2. [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4053R0.pdf
 
-3. [P4054R0](https://wg21.link/p4054r0) - "Two Error Models" (Vinnie Falco, 2026). https://wg21.link/p4054r0
+3. [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf) - "Two Error Models" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4054R0.pdf
 
-4. [P4055R0](https://wg21.link/p4055r0) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4055r0
+4. [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4055R0.pdf
 
-5. [P4056R0](https://wg21.link/p4056r0) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4056r0
+5. [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4056R0.pdf
 
 6. [cppalliance/corosio](https://github.com/cppalliance/corosio) - Coroutine-native networking library. https://github.com/cppalliance/corosio
 
@@ -445,3 +445,5 @@ The author thanks Chris Kohlhoff for Asio's stream model, buffer sequences, and 
 15. [N1925](https://wg21.link/n1925) - "A Proposal to Add Networking Utilities to the C++ Standard Library" (Chris Kohlhoff, 2005). https://wg21.link/n1925
 
 16. Boost.Asio AsyncReadStream requirements. https://www.boost.org/doc/libs/1_87_0/doc/html/boost_asio/reference/AsyncReadStream.html
+
+17. [P2464R0](https://wg21.link/p2464r0) - "Ruminations on networking and executors" (Ville Voutilainen, 2021). https://wg21.link/p2464r0

@@ -11,7 +11,7 @@ audience: LEWG
 
 `std::execution::task<T, Environment>` ([P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup>, "Add a Coroutine Task Type") is proposed as a lingua franca for coroutine-based asynchronous code. The `Environment` parameter is an open query-response protocol whose interoperability surface is defined by a single concept: `queryable`, which is `destructible`. This paper asks a simple question: when two libraries define different environments, how does one task `co_await` the other? The answer, traced step by step through the specification, is that no general conversion exists. The query set is open by design, and the only adaptation mechanism - `write_env` - requires the caller to know every missing query by name. The risk to the ecosystem is structural, documented by the specification itself, by NVIDIA's reference implementation, by the only production precedent (Boost.Asio), and by `task`'s own author.
 
-This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4053R0](https://wg21.link/p4053r0)<sup>[9]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://wg21.link/p4054r0)<sup>[10]</sup>, "Two Error Models"; [P4055R0](https://wg21.link/p4055r0)<sup>[11]</sup>, "Consuming Senders from Coroutine-Native Code"; [P4056R0](https://wg21.link/p4056r0)<sup>[12]</sup>, "Producing Senders from Coroutine-Native Code"; and [P4058R0](https://wg21.link/p4058r0)<sup>[13]</sup>, "The Case for Coroutines."
+This paper is one of a suite of six that examines the relationship between compound I/O results and the sender three-channel model. The companion papers are [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[9]</sup>, "Sender I/O: A Constructed Comparison"; [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[10]</sup>, "Two Error Models"; [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf)<sup>[11]</sup>, "Consuming Senders from Coroutine-Native Code"; [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[12]</sup>, "Producing Senders from Coroutine-Native Code"; and [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf)<sup>[13]</sup>, "The Case for Coroutines."
 
 ---
 
@@ -45,7 +45,7 @@ Out of respect for K&uuml;hl's work, this paper evaluates only the strongest pos
 
 This paper grants [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> every benefit of the doubt. We assume a default `Environment` will be provided. We assume the engineering gaps will be closed. We do not argue from underspecification. We evaluate the design on its strongest possible terms.
 
-Three topics are off-limits. Allocator timing - how and when the frame allocator reaches `operator new` - is being addressed in [P3980R0](https://wg21.link/p3980r0)<sup>[8]</sup> and by the author's own contributions. Allocator propagation - how the allocator flows to child operations through the environment - is an engineering problem with known solutions. Categorization of compound I/O results into the three channels (`set_value`, `set_error`, `set_stopped`) is the subject of [P4054R0](https://wg21.link/p4054r0)<sup>[10]</sup> and [P4053R0](https://wg21.link/p4053r0)<sup>[9]</sup>, not this paper.
+Three topics are off-limits. Allocator timing - how and when the frame allocator reaches `operator new` - is being addressed in [P3980R0](https://wg21.link/p3980r0)<sup>[8]</sup> and by the author's own contributions. Allocator propagation - how the allocator flows to child operations through the environment - is an engineering problem with known solutions. Categorization of compound I/O results into the three channels (`set_value`, `set_error`, `set_stopped`) is the subject of [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf)<sup>[10]</sup> and [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf)<sup>[9]</sup>, not this paper.
 
 ---
 
@@ -99,7 +99,11 @@ Library A needs to propagate tenant context in a multi-tenant service:
 
 ```cpp
 struct get_tenant_id_t
-    : forwarding_query_t {};
+{
+    static constexpr auto
+    query(forwarding_query_t) noexcept
+        -> bool { return true; }
+};
 inline constexpr get_tenant_id_t
     get_tenant_id{};
 
@@ -189,7 +193,7 @@ Neither environment can construct itself from the other. The caller would need t
 
 ### 5.4 What about the standard queries?
 
-The standard defines eight forwarding queries: `get_scheduler`, `get_allocator`, `get_stop_token`, `get_domain`, `get_delegation_scheduler`, `get_forward_progress_guarantee`, `get_completion_scheduler<Tag>`, and `get_await_completion_adaptor`.
+[P2300R10](https://wg21.link/p2300r10)<sup>[3]</sup> defines seven forwarding queries: `get_scheduler`, `get_allocator`, `get_stop_token`, `get_domain`, `get_delegation_scheduler`, `get_forward_progress_guarantee`, and `get_completion_scheduler<Tag>`. [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> adds an eighth: `get_await_completion_adaptor`.
 
 A conversion layer could forward these. But NVIDIA already defines custom queries (`get_stream_provider`, `get_stream`) that are not in this list. Any domain that needs custom queries - GPU, networking, database, audio - is outside the standard set. The standard queries are the *minimum*. The `Environment` parameter exists precisely so domains can add *more*. [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> itself demonstrates a custom `get_value_t` query in its own Section 4.7.
 
@@ -327,7 +331,7 @@ Jonathan M&uuml;ller describes Google's approach in [P3801R0](https://wg21.link/
 
 Google needed a safety property that no other library provides. One template parameter. The promise enforces the invariant. Callers see `Co<T>`. The one-parameter design let them build it without fragmenting the ecosystem.
 
-Domain-specific task types interoperate through the C++20 awaitable protocol. The [cross_await](https://github.com/klemens-morgenstern/cross_await)<sup>[24]</sup> repository (Klemens Morgenstern) contains four cross-library composition examples, 51-105 lines each. Sender bridges follow the same pattern ([P4055R0](https://wg21.link/p4055r0)<sup>[11]</sup>, [P4056R0](https://wg21.link/p4056r0)<sup>[12]</sup>). The ecosystem independently arrived at the design that avoids the problem documented in Section 5.
+Domain-specific task types interoperate through the C++20 awaitable protocol. The [cross_await](https://github.com/klemens-morgenstern/cross_await)<sup>[24]</sup> repository (Klemens Morgenstern) contains four cross-library composition examples, 51-105 lines each. Sender bridges follow the same pattern ([P4055R0](https://isocpp.org/files/papers/P4055R0.pdf)<sup>[11]</sup>, [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf)<sup>[12]</sup>). The ecosystem independently arrived at the design that avoids the problem documented in Section 5.
 
 ---
 
@@ -405,11 +409,11 @@ The author thanks Gor Nishanov for the coroutine model's explicit support for ta
 6. [P3801R0](https://wg21.link/p3801r0) - "Concerns about the design of `std::execution::task`" (Jonathan M&uuml;ller, 2025). https://wg21.link/p3801r0
 7. [P3796R1](https://wg21.link/p3796r1) - "Coroutine Task Issues" (Dietmar K&uuml;hl, 2025). https://wg21.link/p3796r1
 8. [P3980R0](https://wg21.link/p3980r0) - "Task's Allocator Use" (Dietmar K&uuml;hl, 2026). https://wg21.link/p3980r0
-9. [P4053R0](https://wg21.link/p4053r0) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4053r0
-10. [P4054R0](https://wg21.link/p4054r0) - "Two Error Models" (Vinnie Falco, 2026). https://wg21.link/p4054r0
-11. [P4055R0](https://wg21.link/p4055r0) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4055r0
-12. [P4056R0](https://wg21.link/p4056r0) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4056r0
-13. [P4058R0](https://wg21.link/p4058r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4058r0
+9. [P4053R0](https://isocpp.org/files/papers/P4053R0.pdf) - "Sender I/O: A Constructed Comparison" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4053R0.pdf
+10. [P4054R0](https://isocpp.org/files/papers/P4054R0.pdf) - "Two Error Models" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4054R0.pdf
+11. [P4055R0](https://isocpp.org/files/papers/P4055R0.pdf) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4055R0.pdf
+12. [P4056R0](https://isocpp.org/files/papers/P4056R0.pdf) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4056R0.pdf
+13. [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4058R0.pdf
 
 ### StackOverflow and GitHub
 

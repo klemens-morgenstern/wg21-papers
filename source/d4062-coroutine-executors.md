@@ -444,7 +444,7 @@ The authors thank Peter Dimov for identifying that [P0443R14](https://wg21.link/
 4. [Capy](https://github.com/cppalliance/capy) - Coroutine I/O foundation library (Vinnie Falco). https://github.com/cppalliance/capy
 5. [Corosio](https://github.com/cppalliance/corosio) - Coroutine networking library (Vinnie Falco). https://github.com/cppalliance/corosio
 6. [P2300R10](https://wg21.link/p2300r10) - "std::execution" (Micha&lstrok; Dominiak, Lewis Baker, Lee Howes, Kirk Shoop, Michael Garland, Eric Niebler, Bryce Adelstein Lelbach, 2024). https://wg21.link/p2300r10
-7. [P4058R0](https://wg21.link/p4058r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4058r0
+7. [P4058R0](https://isocpp.org/files/papers/P4058R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4058R0.pdf
 8. [P2430R0](https://wg21.link/p2430r0) - "Partial success scenarios with sender/receiver" (Christopher Kohlhoff, 2021). https://wg21.link/p2430r0
 9. [P2762R2](https://wg21.link/p2762r2) - "Sender/Receiver for Networking" (Dietmar K&uuml;hl, 2023). https://wg21.link/p2762r2
 10. [P0113R0](https://wg21.link/p0113r0) - "Executors and Asynchronous Operations, Revision 2" (Christopher Kohlhoff, 2015). https://wg21.link/p0113r0
