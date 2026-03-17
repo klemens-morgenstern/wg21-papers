@@ -12,6 +12,7 @@ audience: WG21
 The committee expressed consensus that sender/receiver is a good basis for networking. The published evidence behind that word is documented here.
 
 In October 2021, LEWG polled: "The sender/receiver model (P2300) is a good basis for most asynchronous use cases, including networking, parallelism, and GPUs" (SF:24 / WF:16 / N:3 / WA:6 / SA:3 - consensus in favor). This paper searches the published record for the evidence that supported the word "networking" in that poll text - at the time of the vote and as of 2026.
+
 ---
 
 ## Revision History

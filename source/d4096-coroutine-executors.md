@@ -9,9 +9,13 @@ audience: LEWG, SG1
 
 ## Abstract
 
-The paper that set aside the Networking TS analyzed the renamed API under one framing. The original framing produces different conclusions.
+The committee set aside the Networking TS in 2021. The process had no mechanism to verify that the analysis examined every applicable framing, and no mechanism to revisit the outcome against evidence.
 
-[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>, "Ruminations on networking and executors," identified three properties of [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>, "A Unified Executors Proposal for C++," executors: no error channel, no lifecycle for submitted work, and no generic composition. [P4094R0](https://wg21.link/p4094r0)<sup>[7]</sup>, "Retrospective: The Unification of Executors and P0443," documents the scope expansion and terminology shift that produced [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> from three independent executor models and defines two framings of `execute(F&&)` - the work framing and the continuation framing. This paper applies those framings. It documents the three properties as applied to the coroutine-native executor described in [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup>, "Coroutines for I/O," and re-examines them as applied to [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>'s `execute(F&&)`. The coroutine executor constrains the handle type to `coroutine_handle<>`, restoring the type constraint that the rename to `execute(F&&)` removed. The coroutine executor concept did not exist in its current form until [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> was published in 2026. Sections 3-6 place [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s criteria next to the coroutine executor's properties. Sections 7-8 document structured concurrency and the executor concept. Section 9 places [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s predictions next to five years of published outcomes.
+[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>, "Ruminations on networking and executors," identified three deficiencies in [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>'s `execute(F&&)` - no error channel, no lifecycle for submitted work, and no generic composition - and concluded the Networking TS should be set aside. The committee acted on the analysis. The Networking TS was removed from the committee's work program.
+
+This retrospective examines the analysis under both framings of `execute(F&&)` defined in [P4094R0](https://wg21.link/p4094r0)<sup>[7]</sup>, "Retrospective: The Unification of Executors and P0443" - the work framing and the continuation framing. Under the work framing, the three deficiencies hold. Under the continuation framing, they do not arise. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> analyzed under the work framing only. The coroutine executor described in [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup>, "Coroutines for I/O," constrains the argument type to `coroutine_handle<>`, enforcing the continuation framing through the type system. The coroutine executor concept did not exist in 2021. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> could not have evaluated it.
+
+Section 2 documents what [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> did and what followed. Sections 3-4 apply both framings to the three criteria. Section 5 places the analysis next to the published outcomes since 2021.
 
 ---
 
@@ -23,23 +27,49 @@ The paper that set aside the Networking TS analyzed the renamed API under one fr
 
 ## 1. Disclosure
 
-This paper is part of the Network Endeavor ([P4100R0](https://wg21.link/p4100r0)), a thirteen-paper project to bring networking to C++29 using a coroutine-native approach. The authors developed and maintain [Corosio](https://github.com/cppalliance/corosio)<sup>[5]</sup> and [Capy](https://github.com/cppalliance/capy)<sup>[4]</sup> and believe coroutine-native I/O is the correct foundation for networking in C++. The authors provide information, ask nothing, and serve at the pleasure of the chair.
+This paper is part of the Network Endeavor ([P4100R0](https://wg21.link/p4100r0)<sup>[18]</sup>), a thirteen-paper project to bring networking to C++29 using a coroutine-native approach. The authors developed and maintain [Corosio](https://github.com/cppalliance/corosio)<sup>[5]</sup> and [Capy](https://github.com/cppalliance/capy)<sup>[4]</sup> and believe coroutine-native I/O is the correct foundation for networking in C++. The authors provide information, ask nothing, and serve at the pleasure of the chair.
 
-The committee has been trying to standardize networking since 2005. This retrospective examines the published record to identify the failure modes that prevented delivery, so the next attempt can avoid them. Its findings stand on their own. That effort requires re-examining consequential papers, including papers written by people the authors respect.
+The committee has been trying to standardize networking since 2005. The retrospective examines the published record to identify the failure modes that prevented delivery, so the next attempt can avoid them. Its findings stand on their own. That effort requires re-examining consequential papers, including papers written by people the authors respect.
 
 ### P2464R0
 
-[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was consequential. It provided the analytical framework that led the committee to set aside the Networking TS and focus on the sender/receiver model. Decisions of that magnitude deserve periodic review. This paper provides one. The intent is to ensure the committee's record is complete, not to assign blame.
+[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was consequential. It provided the analytical framework that led the committee to set aside the Networking TS and focus on the sender/receiver model. Decisions of that magnitude deserve periodic review. This paper provides one.
 
 ### P2300R10
 
 [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> critiqued [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>. [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup>, "std::execution," addressed those deficiencies with the sender/receiver model. [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> provides a second async model. The committee now has two implementations to evaluate against [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s criteria. This paper evaluates [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> and uses [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> as a reference. Structural comparisons are observations, not arguments that `std::execution` should be modified or removed.
 
+### The Networking TS
+
+The authors co-authored [P2469R0](https://wg21.link/p2469r0)<sup>[16]</sup>, "Response to P2464 - Ruminations on networking and executors," defending the Networking TS in 2021 and built Boost.Beast on Boost.Asio's completion-token model. That history makes the following statement necessary: the authors no longer believe the Networking TS would have been right for C++. The committee's conclusion was correct. This paper disagrees with the analytical path, not the destination. There is no attempt to relitigate the Networking TS or to restore it to the committee's work program.
+
+The research that produced [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> is what changed the authors' position. The Networking TS completion token is a generalization: any callable, any future, any coroutine, any continuation type can serve as the async resumption mechanism. That generality is real and it works. But it is a trade-off. Three async models now exist for C++, each making a different trade-off:
+
+- [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> trades runtime flexibility for compile-time work graphs.
+- The Networking TS trades a single async model for support of every continuation type.
+- [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> trades every continuation type for coroutines only.
+
+Each is a valid choice with real benefits and real costs. The coroutines-only trade-off is the one the authors believe is correct for networking in C++. When the completion mechanism is fixed to `coroutine_handle<>`, the operation state becomes concrete, the stream becomes type-erasable without per-operation allocation, the I/O library compiles once, and the ABI stabilizes across transport changes. None of these properties are achievable when the operation state must be parameterized on an arbitrary completion handler type. [P4088R0](https://wg21.link/p4088r0)<sup>[17]</sup>, "The Case for Coroutines," traces the full causal chain. The generality that the completion token provides is genuine, but the cost is that it forecloses the optimizations that networking in C++ has needed for twenty years. Constraining to coroutines is the trade-off that unlocks them.
+
 ---
 
-## 2. The Two Framings
+## 2. What P2464R0 Did
 
-[P4094R0](https://wg21.link/p4094r0)<sup>[7]</sup> documents the scope expansion that produced [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> from three independent executor models and the terminology shift that erased the continuation framing from the API surface. This section restates the two framings defined in [P4094R0](https://wg21.link/p4094r0)<sup>[7]</sup> Sections 2 and 6. The rest of this paper applies them.
+In October 2021, Ville Voutilainen published [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> on behalf of the Finnish National Body. The paper analyzed [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>'s `execute(F&&)` and identified three deficiencies:
+
+1. No error channel.
+2. No lifecycle for submitted work.
+3. No generic composition.
+
+The paper concluded that the Networking TS should be set aside. The committee acted on the analysis. The Networking TS - published as an ISO TS in 2018, built on Boost.Asio's fifteen years of deployment - was removed from the committee's work program. The committee's async effort redirected toward [P2300](https://wg21.link/p2300)<sup>[6]</sup>, the sender/receiver model.
+
+[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> analyzed the specification as written. The analysis was procedurally correct. The three deficiencies it identified in `execute(F&&)` are real properties of that API surface under the framing the paper adopted. The committee evaluated the analysis, voted, and acted. The process functioned as designed.
+
+---
+
+## 3. The Two Framings
+
+[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> analyzed `execute(F&&)` under one framing. [P4094R0](https://wg21.link/p4094r0)<sup>[7]</sup> documents the scope expansion that produced [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> from three independent executor models and the terminology shift that erased the continuation framing from the API surface. Two framings of `execute(F&&)` exist.
 
 **The continuation framing.** `dispatch`/`post`/`defer` schedule a continuation on an execution context. The callable is a resumption handle. The operating system performs the work. The result is delivered to the continuation when it wakes up. The executor never touches the result.
 
@@ -49,11 +79,9 @@ The structural difference is in what happens to the caller. `post` ends the call
 
 The work framing imposes requirements on the executor that the continuation framing does not. Under the work framing, the executor is responsible for error channels, lifecycle management, and generic composition - the three deficiencies [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> identified. Under the continuation framing, the executor schedules a resumption, the OS performs the work, and the result is delivered to the continuation when it wakes up. A continuation carries no result because the result does not yet exist. The generalization from `dispatch(handler)` to `execute(F&&)` introduced these requirements. The coroutine executor's `dispatch(coroutine_handle<>)` and `post(coroutine_handle<>)` constrain the argument to a type with exactly two operations - `resume()` and `destroy()`. The continuation framing is enforced by the type system, not by naming convention.
 
-Both framings are applied to [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s three criteria below.
-
 ---
 
-## 3. The Three Criteria
+## 4. The Three Criteria Under Both Framings
 
 [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>:
 
@@ -70,21 +98,11 @@ std::coroutine_handle<> dispatch(
 void post(std::coroutine_handle<> h) const;
 ```
 
-[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> identified three deficiencies in [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> that made it inadequate as a foundation for async programming:
+[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> identified three deficiencies in [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> that made it inadequate as a foundation for async programming. [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> addressed all three with the sender/receiver model. The coroutine executor concept did not exist in 2021. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> could not have evaluated it. The point of the following subsections is not that [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was wrong about [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> - it is that the deficiencies it identified are properties of `execute(F&&)` under the work framing, not inherent properties of executor-based async. Under the continuation framing, the same `execute(F&&)` does not exhibit them. The coroutine executor demonstrates this by constraining the argument type to `coroutine_handle<>`, which eliminates the conditions that create those deficiencies.
 
-1. No error channel.
-2. No lifecycle for submitted work.
-3. No generic composition.
+### 4.1 Error Channel
 
-[P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> addressed all three with the sender/receiver model. The coroutine executor concept did not exist in 2021. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> could not have evaluated it. The point of the following sections is not that [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was wrong about [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> - it is that the deficiencies it identified are properties of the `execute(F&&)` API surface, not inherent properties of executor-based async. The coroutine executor demonstrates this by constraining the argument type to `coroutine_handle<>`, which eliminates the conditions that create those deficiencies.
-
----
-
-## 4. The Error Channel
-
-[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> argued that [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup>'s `execute(F&&)` has no error channel at the call site, and that errors after the call are an "irrecoverable data loss." This section addresses both claims.
-
-### 4.1 The Lost Framing
+[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> argued that `execute(F&&)` has no error channel at the call site, and that errors after the call are an "irrecoverable data loss."
 
 [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>:
 
@@ -100,13 +118,7 @@ Three terms. All three are downstream consequences of the work framing that the 
 
 [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> analyzed the renamed API under the work framing. The use cases it describes - queue full, executor shutting down - presuppose a fire-and-forget model where a caller hands off work and moves on. The original API did not operate that way.
 
-The coroutine executor's `dispatch` and `post` take `coroutine_handle<>`, not `F&&`.
-
-### 4.2 The Coroutine Model
-
-`co_await` suspends the caller. The caller is not running. It does not need an error channel back because it is not alive to act on one. It will either be resumed with a result or destroyed, propagating cancellation. There is no state where the caller is alive, running, and uninformed. `coroutine_handle<>` is a suspended continuation, not a unit of work.
-
-### 4.3 The Timeline
+The coroutine executor's `dispatch` and `post` take `coroutine_handle<>`, not `F&&`. `co_await` suspends the caller. The caller is not running. It does not need an error channel back because it is not alive to act on one. It will either be resumed with a result or destroyed, propagating cancellation. There is no state where the caller is alive, running, and uninformed.
 
 [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> said errors after submission are an "irrecoverable data loss." The error-channel question has a timeline. What exists at each stage determines what can be lost.
 
@@ -122,11 +134,13 @@ Trace the path of an asynchronous read in the Networking TS:
 
 At steps 1 and 2, there is no error information. The I/O has not completed. The operating system has not returned a result. There is no error code. There is no byte count. The only thing being passed to the executor is a resumption handle: this is how you resume me. That is all a callback is. That is all a future is. That is all a completion token is. That is all a `coroutine_handle<>` is. If the executor drops the handle at this stage, the handle carries no error information. The handle is a resumption. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> described information loss. At this stage, the handle contains no information. It contains a resumption.
 
-At step 3, the result exists. The OS has completed. The result is bound into the handler before the executor sees it. The executor's job is to resume the handler on the right context. The result travels inside the handler, not alongside it. If the executor drops the bound handler at this stage, the result is destroyed with the handler. This is the strongest form of [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s concern, and it is real: a result that exists inside a dropped continuation is lost.
+At step 3, the result exists. The OS has completed. The result is bound into the handler before the executor sees it. The executor's job is to resume the handler on the right context. The result travels inside the handler, not alongside it.
 
-The question is what happens to the program.
+Under routine operation, the executor resumes the continuation. The result is delivered. There is no information loss. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s concern was structural - that the API *by design* has no error channel, so routine errors are lost. Under the continuation framing, routine errors are not lost. They are delivered to the continuation when it resumes. The executor never interprets the result. It does not need an error channel because it is not the entity that acts on the result.
 
-**Networking TS:**
+The remaining question is catastrophic conditions: the execution context is shutting down, the reactor is being destroyed, the system has exhausted resources. If the executor drops the bound handler under these conditions, the result is destroyed with the handler. This is real. But it is not specific to the continuation model. Every async model has the same property under catastrophic conditions:
+
+**Networking TS (continuation model):**
 
 ```cpp
 async_read(socket, buffer,
@@ -136,7 +150,7 @@ async_read(socket, buffer,
 // caller returns here - gone
 ```
 
-The caller returned at the call site. If the executor drops the bound handler, a future action does not happen. The result was created by the OS, bound into the handler, and destroyed with the handler. It was never delivered to anyone. The caller is gone. The program is not hung.
+If the execution context shuts down, the bound handler is destroyed. The caller has returned. The program is not hung.
 
 **Coroutine model:**
 
@@ -146,20 +160,23 @@ auto [ec, n] =
 // coroutine is suspended
 ```
 
-The coroutine is suspended. The ownership contract requires the executor to resume or destroy. If it destroys the handle, the coroutine frame is destroyed, the parent is notified via destruction propagation. The result was never delivered. The coroutine was suspended at the time of destruction. The program is not hung.
+If the execution context shuts down, the ownership contract requires the executor to destroy the handle. The coroutine frame is destroyed. The parent is notified via destruction propagation. The program is not hung.
 
-| Model           | Initiator state | Result                         | Program state                 |
-| --------------- | --------------- | ------------------------------ | ----------------------------- |
-| Networking TS   | Gone (returned) | Destroyed with handler         | Not hung                      |
-| Coroutine model | Suspended       | Destroyed with operation state | Not hung (ownership contract) |
+**Sender model:**
 
-In both models, the initiator is not running at the time of the drop. In the Networking TS, the initiator returned. In the coroutine model, the initiator is suspended. In both models, a dropped continuation destroys the result it carries. The difference between the two framings is not whether the result can be lost - it can - but whether the program hangs. Under the work framing, a dropped callable with no error channel leaves the program in an indeterminate state. Under the continuation framing, the caller is either gone (returned) or governed by an ownership contract (resume or destroy). The program state is determinate in both cases.
+If the execution context shuts down, the operation state is destroyed. `set_stopped` propagates cancellation. In-flight results are lost.
+
+| Model           | Catastrophic drop  | Initiator state | Program state                 |
+| --------------- | ------------------ | --------------- | ----------------------------- |
+| Networking TS   | Handler destroyed  | Gone (returned) | Not hung                      |
+| Coroutine model | Handle destroyed   | Suspended       | Not hung (ownership contract) |
+| Sender model    | Op-state destroyed | Connected       | Not hung (`set_stopped`)      |
+
+Under catastrophic conditions, all three models lose in-flight results. This is not a deficiency of any one model. It is a property of catastrophic shutdown. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s "irrecoverable data loss" concern described a structural property of routine operation under the work framing - a fire-and-forget API where the caller hands off work and moves on, with no channel to learn what happened. Under the continuation framing, routine operation delivers the result to the continuation. The information loss that [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> described does not occur during routine operation. It occurs only under catastrophic conditions that affect all models equally.
 
 `sync_wait` is a testing and bridging utility, not a production async pattern. This comparison is limited to models where the initiator is asynchronous.
 
----
-
-## 5. Lifecycle
+### 4.2 Lifecycle
 
 [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>:
 
@@ -171,9 +188,7 @@ Under the continuation framing, the callback is a continuation - it is how the i
 
 Under the continuation framing, work submission and result observation are not separable because they are not separate things. The executor takes a continuation and resumes it on a context. The work is done by the operating system. The result is delivered *to* the continuation when it resumes - result observation is not separable from the continuation because the result arrives inside it.
 
-The coroutine model makes the lifecycle explicit.
-
-`post(coroutine_handle<>)` has two call-site dispositions:
+The coroutine model makes the lifecycle explicit. `post(coroutine_handle<>)` has two call-site dispositions:
 
 - **Normal return.** Ownership transferred. The executor holds the handle and is responsible for it.
 - **Exception.** Scheduling rejected. The caller still owns the handle.
@@ -187,12 +202,10 @@ The executor holds a typed resource with a defined lifecycle. A `coroutine_handl
 
 :::wording
 
-```cpp
-std::coroutine_handle<> dispatch(
-    std::coroutine_handle<> h) const;
+<pre><code>std::coroutine_handle&lt;&gt; dispatch(
+    std::coroutine_handle&lt;&gt; h) const;
 
-void post(std::coroutine_handle<> h) const;
-```
+void post(std::coroutine_handle&lt;&gt; h) const;</code></pre>
 
 *Preconditions:* `h` is a valid, suspended coroutine handle.
 
@@ -208,17 +221,13 @@ void post(std::coroutine_handle<> h) const;
 
 :::
 
-The ownership contract specifies two dispositions: resume or destroy. The `Executor` concept definition (Section 8) checks for the existence of `dispatch` and `post` but cannot enforce the ownership semantics at compile time. This is a semantic requirement, not a syntactic one - the same class of constraint that `Allocator`, `Iterator`, and every other standard library concept carries alongside its syntactic checks.
+The ownership contract specifies two dispositions: resume or destroy. This is a semantic requirement, not a syntactic one - the same class of constraint that `Allocator`, `Iterator`, and every other standard library concept carries alongside its syntactic checks.
 
----
-
-## 6. Composition
+### 4.3 Composition
 
 [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>:
 
 > "Composing Networking TS completion handlers or asynchronous operations (which aren't even a thing in the NetTS APIs, so how would I be able to compose those other than in an ad-hoc manner?) seems like an ad-hoc and non-generic exercise. Whether they were designed for or ever deployed in larger-scale compositions that scale from low-level to high-level with any sort of uniformity, I don't know."
-
-### 6.1 The Concession
 
 On the axis of algorithmic composition - `retry`, `when_all`, `upon_error`, chaining operations generically into higher-level workflows - the Networking TS had no generic mechanism. Each composed operation required a hand-written state machine. Boost.Beast (Boost 1.66, 2017) deployed three layers of composed asynchronous operations - socket reads into HTTP parsing into WebSocket framing - and every layer required its own state machine, its own intermediate completion handler, and its own lifetime management. The composition worked. It was deployed. It scaled from low-level to high-level. But it was genuinely difficult to write, difficult to review, and difficult to get right. The authors wrote those state machines and can attest to the cost.
 
@@ -226,160 +235,22 @@ On the axis of algorithmic composition - `retry`, `when_all`, `upon_error`, chai
 
 Coroutines address the same axis differently. `co_await` replaces the state machine. A composed read that required a hundred-line state machine in the callback model is a ten-line coroutine body. The coroutine frame holds the state. The compiler manages the suspension points. C++20 was ratified in 2020.
 
-### 6.2 A Second Axis
-
-The preceding subsection addresses algorithmic composition - the axis [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was right about. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s composition argument also touched a second, distinct axis - the completion-model axis:
-
-> "How many different implementations of this function do I need to support 200 different execution strategies and 10,500 different continuation-decorations(\*)? ... With Senders and Receivers, the answer is 'one, you just wrote it.'"
-
-"Execution strategies" means different executors - thread pools, event loops, strands, GPU contexts. The axis of *where* the continuation resumes. "Continuation-decorations" means different completion models - callbacks, futures, coroutines, `use_awaitable`. The axis of *how* the initiator receives the result.
-
-On this axis, a solution existed. [N3747](https://wg21.link/n3747)<sup>[11]</sup>, "A Universal Model for Asynchronous Operations" (Kohlhoff, 2013), documented the mechanism: `async_result`. Each completion token specializes `async_result` once, and every async operation works with it. One function signature serves every completion model:
-
-```cpp
-template<class ReadHandler>
-DEDUCED async_read(
-    AsyncReadStream& s,
-    DynamicBuffer& b,
-    ReadHandler&& handler);
-```
-
-The same `async_read` works with a callback, a future, or a coroutine. M executors and N completion models require one implementation of `async_read` plus N specializations of `async_result`. Not M x N. `async_result` is not algorithmic composition - it does not give you `retry` or `when_all`. It is completion-model polymorphism: one implementation of each operation, multiple ways to receive the result. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> did not address `async_result` or [N3747](https://wg21.link/n3747)<sup>[11]</sup>.
-
-The compositions existed. Asio's own `async_read` composes `async_read_some`. Boost.Beast composes socket-level reads into HTTP message parsing into WebSocket frames - three layers, all using `async_result`, all scaling from low-level to high-level. Both were deployed before [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was written. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> said "I don't know" whether the TS's asynchronous operations could compose. [N3747](https://wg21.link/n3747)<sup>[11]</sup> was published in 2013. Boost.Beast shipped in 2017.
-
-### 6.3 The Two Framings in Code
-
-[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s composition argument rests on pseudo-code. Compare it with the code it was analyzing:
-
-<table>
-<tr>
-<th>The continuation framing (P0113R0, 2015)</th>
-<th>The work framing (P2464R0, 2021)</th>
-</tr>
-<tr>
-<td><pre><code>// Pass the result to the handler,
-// via the associated executor.
-dispatch(work.get_executor(),
-    [line=std::move(line),
-     handler=std::move(handler)]
-        () mutable
-    {
-        handler(std::move(line));
-    });</code></pre></td>
-<td><pre><code>void run_that_io_operation(
-    scheduler auto sched,
-    sender_of&lt;network_buffer&gt; auto
-        wrapping_continuation)
-{
-    launch_our_io();
-    auto [buffer, status] =
-        fetch_io_results_somehow(
-            maybe_asynchronously);
-    run_on(sched,
-        queue_onto(wrapping_continuation,
-            make_it_queueable(
-                buffer, status)));
-}</code></pre></td>
-</tr>
-</table>
-
-2015 and 2021.
-
-### 6.4 Summary
-
-On the algorithmic-composition axis, [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> was right. The Networking TS had no generic composition mechanism. Senders provide one. Coroutines provide another. On the completion-model axis, a solution existed in [N3747](https://wg21.link/n3747)<sup>[11]</sup> and was deployed. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> did not address it.
-
-The preceding sections address [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup>'s criteria. The following sections document additional properties of the coroutine constraint.
-
 ---
 
-## 7. Structured Concurrency
+## 5. Outcomes
 
-The coroutine executor model provides structured concurrency through `co_await`-based combinators. The following examples are from [Capy](https://github.com/cppalliance/capy)<sup>[4]</sup>.
+[P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides compile-time sender composition, structured concurrency guarantees, and a customization point model that enables heterogeneous dispatch. These are real achievements. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> identified real deficiencies in [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> and the committee acted on them. The outcomes are now observable.
 
-Fan-out with `when_all` - three concurrent operations, one join point:
-
-```cpp
-capy::task<dashboard> load_dashboard(
-    std::uint64_t user_id)
-{
-    auto [name, orders, balance] =
-        co_await capy::when_all(
-            fetch_user_name(user_id),
-            fetch_order_count(user_id),
-            fetch_account_balance(user_id));
-    co_return dashboard{name, orders, balance};
-}
-```
-
-Race with `when_any` - first completion wins, the other is cancelled:
-
-```cpp
-capy::task<> timeout_a_worker()
-{
-    auto result = co_await capy::when_any(
-        background_worker("worker"),
-        capy::delay(100ms));
-
-    if (result.index() == 1)
-        std::cout << "Timeout fired\n";
-}
-```
-
----
-
-## 8. The Executor Is Application Policy
-
-[P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> treated thousands of executor implementations as a problem:
-
-> "C++ programmers will write *thousands* of these executors."
-
-[P0113R0](https://wg21.link/p0113r0)<sup>[10]</sup> (Kohlhoff, 2015):
-
-> "Like allocators, library users can develop custom executor types to implement their own rules."
-
-[P0285R0](https://wg21.link/p0285r0)<sup>[12]</sup> (Kohlhoff, 2016):
-
-> "The central concept of this library is the executor as a policy."
-
-The coroutine executor concept ([Capy](https://github.com/cppalliance/capy)<sup>[4]</sup>):
-
-```cpp
-template<class E>
-concept Executor =
-    std::is_nothrow_copy_constructible_v<E> &&
-    std::is_nothrow_move_constructible_v<E> &&
-    requires(E const& ce, std::coroutine_handle<> h)
-{
-    { ce == ce } noexcept -> std::convertible_to<bool>;
-    { ce.context() } noexcept;
-    { ce.dispatch(h) } -> std::same_as<
-        std::coroutine_handle<>>;
-    { ce.post(h) };
-};
-```
-
-Two operations. Both take a `coroutine_handle<>`. Both resume it on a context. Most users never see it - they write `task<>` coroutines and pick an executor at the launch site. The concept exists for the people who build execution contexts, not the people who use them.
-
-The narrowness of the concept limits the implementation space. `execute(F&&)` accepts any callable, so every executor implementation decides independently what to do with an arbitrary callable - error handling, lifecycle, composition are all implementation-defined. `dispatch(coroutine_handle<>)` and `post(coroutine_handle<>)` accept a type with exactly two operations: `resume()` and `destroy()`. A thread pool, an event loop, and a strand all implement the same two operations the same way. The variation is in *where* the handle resumes, not in *what* the executor does with it. Thousands of coroutine executors would differ only in scheduling policy. The ecosystem-scale divergence that [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> predicted for `execute(F&&)` does not arise when the argument type is constrained.
-
----
-
-## 9. Five Years Later
-
-[P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides compile-time sender composition, structured concurrency guarantees, and a customization point model that enables heterogeneous dispatch. These are real achievements. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> identified real deficiencies in [P0443R14](https://wg21.link/p0443r14)<sup>[3]</sup> and the committee acted on them. Five years of outcomes are now observable.
-
-### 9.1 The Empirical Record
+### 5.1 The Empirical Record
 
 | Criterion              | [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> claim (2021)                                  | Predicted outcome                                                              | 2026 evidence                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Error channel          | `execute(F&&)` has no error channel                                                               | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides `set_error`      | [P2430R0](https://wg21.link/p2430r0)<sup>[8]</sup> (Kohlhoff, 2021): compound I/O results cannot use `set_error` without losing the byte count. [P2762R2](https://wg21.link/p2762r2)<sup>[9]</sup> (K&uuml;hl, 2023): five routing options documented, single-argument error channel "somewhat limiting." LEWG reflector (March 2026): no standard facility exists for runtime dispatch of compound results onto channels. |
-| Lifecycle              | `execute(F&&)` has no lifecycle for submitted work                                                | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides structured lifecycle via sender/receiver | [P3801R0](https://wg21.link/p3801r0)<sup>[13]</sup> (2025): `execution::task` lacks symmetric transfer. [P3552R3](https://wg21.link/p3552r3)<sup>[14]</sup>: `AS-EXCEPT-PTR` converts routine `error_code` to `exception_ptr`.                                                                                                                                                                                |
-| Generic composition    | No generic composition                                                                            | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides sender algorithms | [P2470R0](https://wg21.link/p2470r0)<sup>[15]</sup> (2021): deployments at Facebook, NVIDIA, Bloomberg - GPU dispatch, thread pools, infrastructure. Seven published examples (2024): thread pools, embedded systems, cooperative multitasking, custom algorithms. None involve networking. None involve I/O.                                                                                                   |
-| Deployed networking    | "I don't know" whether Networking TS compositions scale                                           | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> replaces the Networking TS | No published paper documents production-scale networking using the sender model. [N1925](https://wg21.link/n1925)<sup>[16]</sup> (2005): first networking proposal. 2026: networking is not in the C++ standard.                                                                                                                                                                                                |
+| Lifecycle              | `execute(F&&)` has no lifecycle for submitted work                                                | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides structured lifecycle via sender/receiver | [P3801R0](https://wg21.link/p3801r0)<sup>[11]</sup> (2025): `execution::task` lacks symmetric transfer. [P3552R3](https://wg21.link/p3552r3)<sup>[12]</sup>: `AS-EXCEPT-PTR` converts routine `error_code` to `exception_ptr`.                                                                                                                                                                                |
+| Generic composition    | No generic composition                                                                            | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> provides sender algorithms | [P2470R0](https://wg21.link/p2470r0)<sup>[13]</sup> (2021): deployments at Facebook, NVIDIA, Bloomberg - GPU dispatch, thread pools, infrastructure. Seven published examples (2024): thread pools, embedded systems, cooperative multitasking, custom algorithms. None involve networking. None involve I/O.                                                                                                   |
+| Deployed networking    | "I don't know" whether Networking TS compositions scale                                           | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> replaces the Networking TS | No published paper documents production-scale networking using the sender model. [N1925](https://wg21.link/n1925)<sup>[14]</sup> (2005): first networking proposal. 2026: networking is not in the C++ standard.                                                                                                                                                                                                |
 
-### 9.2 The Symmetry Test
+### 5.2 The Symmetry Test
 
 A constraint applied to one model applies to both.
 
@@ -388,29 +259,43 @@ A constraint applied to one model applies to both.
 | Property                  | Coroutine executor                                                                                                                                                     | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> for networking                                                                                                                                                                                                                                                                |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Age                       | [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> (2026). New.                                                                                                       | [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> redirected the committee toward [P2300](https://wg21.link/p2300)<sup>[6]</sup> in 2021. Five years.                                                                                                                                                                             |
-| Deployments               | [Capy](https://github.com/cppalliance/capy)<sup>[4]</sup>, [Corosio](https://github.com/cppalliance/corosio)<sup>[5]</sup>.                                           | [P2470R0](https://wg21.link/p2470r0)<sup>[15]</sup>: Facebook, NVIDIA, Bloomberg - GPU dispatch, thread pools, infrastructure.                                                                                                                                                                                                     |
+| Deployments               | [Capy](https://github.com/cppalliance/capy)<sup>[4]</sup>, [Corosio](https://github.com/cppalliance/corosio)<sup>[5]</sup>.                                           | [P2470R0](https://wg21.link/p2470r0)<sup>[13]</sup>: Facebook, NVIDIA, Bloomberg - GPU dispatch, thread pools, infrastructure.                                                                                                                                                                                                     |
 | Networking deployments    | New.                                                                                                                                                                   | None published. Boost.Asio and Boost.Beast - the deployed networking that the committee set aside - used the continuation model.                                                                                                                                                                                                    |
 
 **The `noexcept` context.** Both models can reach `std::terminate` in a `noexcept` coroutine. The difference is in the trigger condition:
 
-| Property                  | Coroutine executor                                                                                                                                                     | `execution::task` ([P3552R3](https://wg21.link/p3552r3)<sup>[14]</sup>)                                                                                                                                                                                                                                                            |
+| Property                  | Coroutine executor                                                                                                                                                     | `execution::task` ([P3552R3](https://wg21.link/p3552r3)<sup>[12]</sup>)                                                                                                                                                                                                                                                            |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | What throws               | `post(coroutine_handle<>)` throws `std::system_error` on scheduling failure.                                                                                           | `AS-EXCEPT-PTR` converts routine `error_code` to `exception_ptr`.                                                                                                                                                                                                                                                                  |
 | Trigger condition         | Scheduling failure on an I/O reactor.                                                                                                                                  | `ECONNRESET`, `ETIMEDOUT`, `EWOULDBLOCK` - routine I/O outcomes.                                                                                                                                                                                                                                                                   |
 | In a `noexcept` context   | `std::terminate` on catastrophic system condition.                                                                                                                     | `std::terminate` on routine I/O.                                                                                                                                                                                                                                                                                                    |
 
-**Process and outcomes.** The committee evaluates specifications as written. The committee also exists to deliver a standard that serves users. Both are true. This paper documents outcomes. The Networking TS was published as an ISO TS in 2018. It was removed from the committee's work program in 2021. In 2026, no replacement has shipped.
+### 5.3 The Outcome
 
-### 9.3 Summary
+The analysis was procedurally correct. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> analyzed the specification as written. The three deficiencies it identified are real properties of `execute(F&&)` under the work framing. The committee evaluated the analysis, voted, and acted. The process functioned as designed.
+
+The outcome: the Networking TS was published as an ISO TS in 2018. It was removed from the committee's work program in 2021. In 2026, no replacement has shipped.
+
+It is natural to prioritize process. Process is visible. Process is checkable. A procedural review can verify that an analysis is correct on its own terms - that the specification says what the paper claims it says, that the deficiencies identified are real properties of the API surface. That verification happened. It was done correctly.
+
+What the process did not check - what it has no mechanism to check - is whether the analysis examined the specification under every applicable framing. [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> analyzed `execute(F&&)` under the work framing. The continuation framing, documented in [P0113R0](https://wg21.link/p0113r0)<sup>[10]</sup>, "Executors and Asynchronous Operations, Revision 2" (2015), and carried by institutional knowledge rather than by the API surface, was not examined. Under that framing, the three deficiencies do not arise. The process had no mechanism to require that both framings be examined before acting on the analysis.
+
+The process also had no mechanism to check outcomes. No revisit trigger was set. No follow-up criteria were established. The committee acted on the analysis in 2021. The prediction that [P2300](https://wg21.link/p2300)<sup>[6]</sup> would replace the Networking TS for networking was not revisited against evidence. No sender-based networking has shipped.
+
+[P4050R0](https://wg21.link/p4050r0)<sup>[15]</sup>, "Failure Modes in Large-Scale Standardization," generalizes this pattern. Failure mode D4: design limitations attributed to the problem domain - the three deficiencies are properties of the `execute(F&&)` API surface under one framing, not inherent properties of executor-based async. Failure mode A4: predictions without follow-up - the committee acted on a prediction and never checked whether the prediction held. The failure modes and the proposed remedies are documented in [P4050R0](https://wg21.link/p4050r0)<sup>[15]</sup>. This paper documents the specific instance.
+
+Voutilainen analyzed what was in front of him, and what was in front of him was all the specification provided. The continuation framing had been erased from the API surface by the terminology shift documented in [P4094R0](https://wg21.link/p4094r0)<sup>[7]</sup>. The coroutine executor concept did not exist. The process gave him no reason to look elsewhere and no mechanism to revisit the outcome.
+
+### 5.4 Summary
 
 | Criterion              | [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> (2021)                   | [P2300R10](https://wg21.link/p2300r10)<sup>[6]</sup> (2026)                                                                                                                                                                        | Coroutine executor                                                                                                                    |
 | ---------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Error channel          | `execute(F&&)` has none                                                      | `set_error` exists; does not handle compound I/O results without information loss ([P2430R0](https://wg21.link/p2430r0)<sup>[8]</sup>)                                                                                              | Not needed; result delivered to continuation on resume                                                                                 |
-| Lifecycle              | `execute(F&&)` has none                                                      | Structured lifecycle exists; `task` converts routine errors to exceptions ([P3552R3](https://wg21.link/p3552r3)<sup>[14]</sup>)                                                                                                     | Ownership contract: resume or destroy                                                                                                 |
-| Generic composition    | `execute(F&&)` has none                                                      | Sender algorithms exist; deployed for GPU dispatch, thread pools, infrastructure                                                                                                                                                    | Algorithmic: `co_await` replaces state machines. Completion-model: `async_result` ([N3747](https://wg21.link/n3747)<sup>[11]</sup>)       |
-| Deployed networking    | "I don't know"                                                               | None published                                                                                                                                                                                                                      | New. Boost.Asio and Boost.Beast used the continuation model.                                                                          |
+| Lifecycle              | `execute(F&&)` has none                                                      | Structured lifecycle exists; `task` converts routine errors to exceptions ([P3552R3](https://wg21.link/p3552r3)<sup>[12]</sup>)                                                                                                     | Ownership contract: resume or destroy                                                                                                 |
+| Generic composition    | `execute(F&&)` has none                                                      | Sender algorithms exist; deployed for GPU dispatch, thread pools, infrastructure                                                                                                                                                    | `co_await` replaces state machines                                                                                                    |
+| Deployed networking    | "I don't know"                                                               | None published                                                                                                                                                                                                                      | New.                                                                                                                                  |
 
-The question that [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> asked in 2021 - whether the executor abstraction is adequate for async programming - now has two published answers instead of one.
+The question that [P2464R0](https://wg21.link/p2464r0)<sup>[1]</sup> asked in 2021 - whether the executor abstraction is adequate for async programming - now has two published answers instead of one. The question that the process did not ask - whether the analysis examined every applicable framing before the committee acted on it - did not have a mechanism to be asked.
 
 ---
 
@@ -423,18 +308,37 @@ The authors thank Peter Dimov for identifying that [P0443R14](https://wg21.link/
 ## References
 
 1. [P2464R0](https://wg21.link/p2464r0) - "Ruminations on networking and executors" (Ville Voutilainen, 2021). https://wg21.link/p2464r0
+
 2. [P4003R0](https://wg21.link/p4003r0) - "Coroutines for I/O" (Vinnie Falco, Steve Gerbino, Mungo Gill, 2026). https://wg21.link/p4003r0
+
 3. [P0443R14](https://wg21.link/p0443r14) - "A Unified Executors Proposal for C++" (Jared Hoberock, et al., 2020). https://wg21.link/p0443r14
+
 4. [Capy](https://github.com/cppalliance/capy) - Coroutine I/O foundation library (Vinnie Falco). https://github.com/cppalliance/capy
+
 5. [Corosio](https://github.com/cppalliance/corosio) - Coroutine networking library (Vinnie Falco). https://github.com/cppalliance/corosio
+
 6. [P2300R10](https://wg21.link/p2300r10) - "std::execution" (Micha&lstrok; Dominiak, Lewis Baker, Lee Howes, Kirk Shoop, Michael Garland, Eric Niebler, Bryce Adelstein Lelbach, 2024). https://wg21.link/p2300r10
+
 7. [P4094R0](https://wg21.link/p4094r0) - "Retrospective: The Unification of Executors and P0443" (Vinnie Falco, 2026). https://wg21.link/p4094r0
+
 8. [P2430R0](https://wg21.link/p2430r0) - "Partial success scenarios with sender/receiver" (Christopher Kohlhoff, 2021). https://wg21.link/p2430r0
+
 9. [P2762R2](https://wg21.link/p2762r2) - "Sender/Receiver for Networking" (Dietmar K&uuml;hl, 2023). https://wg21.link/p2762r2
+
 10. [P0113R0](https://wg21.link/p0113r0) - "Executors and Asynchronous Operations, Revision 2" (Christopher Kohlhoff, 2015). https://wg21.link/p0113r0
-11. [N3747](https://wg21.link/n3747) - "A Universal Model for Asynchronous Operations" (Christopher Kohlhoff, 2013). https://wg21.link/n3747
-12. [P0285R0](https://wg21.link/p0285r0) - "Using customization points to unify executors" (Christopher Kohlhoff, 2016). https://wg21.link/p0285r0
-13. [P3801R0](https://wg21.link/p3801r0) - "Symmetric Transfer for task" (Maikel Nadolski, 2025). https://wg21.link/p3801r0
-14. [P3552R3](https://wg21.link/p3552r3) - "Add a Coroutine Task Type" (Dietmar K&uuml;hl, Maikel Nadolski, 2025). https://wg21.link/p3552r3
-15. [P2470R0](https://wg21.link/p2470r0) - "Slides for presentation of P2300R2" (Eric Niebler, 2021). https://wg21.link/p2470r0
-16. [N1925](https://wg21.link/n1925) - "A Proposal to Add Networking Utilities to the C++ Standard Library" (Chris Kohlhoff, 2005). https://wg21.link/n1925
+
+11. [P3801R0](https://wg21.link/p3801r0) - "Symmetric Transfer for task" (Maikel Nadolski, 2025). https://wg21.link/p3801r0
+
+12. [P3552R3](https://wg21.link/p3552r3) - "Add a Coroutine Task Type" (Dietmar K&uuml;hl, Maikel Nadolski, 2025). https://wg21.link/p3552r3
+
+13. [P2470R0](https://wg21.link/p2470r0) - "Slides for presentation of P2300R2" (Eric Niebler, 2021). https://wg21.link/p2470r0
+
+14. [N1925](https://wg21.link/n1925) - "A Proposal to Add Networking Utilities to the C++ Standard Library" (Chris Kohlhoff, 2005). https://wg21.link/n1925
+
+15. [P4050R0](https://wg21.link/p4050r0) - "Failure Modes in Large-Scale Standardization" (Vinnie Falco, 2026). https://wg21.link/p4050r0
+
+16. [P2469R0](https://wg21.link/p2469r0) - "Response to P2464 - Ruminations on networking and executors" (Vinnie Falco, Christopher Kohlhoff, 2021). https://wg21.link/p2469r0
+
+17. [P4088R0](https://wg21.link/p4088r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4088r0
+
+18. [P4100R0](https://wg21.link/p4100r0) - "The Network Endeavor: Coroutine-Native I/O for C++29" (Vinnie Falco, Steve Gerbino, Michael Vandeberg, Mungo Gill, Mohammad Nejati, 2026). https://wg21.link/p4100r0
