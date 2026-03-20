@@ -193,6 +193,31 @@ One could pass the parent's promise as a parameter to the child coroutine. This 
 
 `std::pmr::get_default_resource()` is a process-wide ambient allocator. It is Path B with process scope instead of per-chain scope. A single allocator for every coroutine chain in the process is insufficient for deployments that need per-tenant budgets, bounded pools, or allocation tracking scoped to individual request chains.
 
+### 5.8 Sender-Environment Bridge Wrappers
+
+A wrapper object can read the allocator from the sender execution environment and inject `allocator_arg_t` into the coroutine's parameter list at the launch site. The wrapper intercepts the call, reads the allocator via `read_env(get_allocator)`, and invokes the coroutine with `std::allocator_arg, alloc, args...`. The coroutine's `operator new` sees the allocator at the right time.
+
+This automates the first hop - from the sender world into the coroutine's parameter list. Inside the coroutine, every `co_await` of a child coroutine still requires manual forwarding:
+
+```cpp
+task<void, env> handle_request(
+    std::allocator_arg_t, auto alloc,
+    socket& s)
+{
+    buffer buf;
+    // wrapper helped at the launch site,
+    // but here we are back to manual:
+    auto hdr = co_await parse_header(
+        std::allocator_arg, alloc, s, buf);
+    co_await send_response(
+        std::allocator_arg, alloc, s, hdr);
+}
+```
+
+The wrapper is not present at internal call sites. It solves the sender-to-coroutine boundary but not the coroutine-to-coroutine chain. Every child coroutine still needs `allocator_arg_t` in its signature. Every internal `co_await` still forwards the allocator manually.
+
+A sender-environment bridge wrapper is Path A with automation at one boundary. The viral signature pollution remains for the entire chain below.
+
 ---
 
 ## 6. The Design Space
@@ -206,6 +231,7 @@ One could pass the parent's promise as a parameter to the child coroutine. This 
 | `initial_suspend`         | No (too late)               | -           |
 | Deferred invocation       | Indirectly                  | Path A or B |
 | Promise-based injection   | No (parent inaccessible)    | Path A      |
+| Sender-env bridge wrapper | First hop only              | Path A      |
 | Thread-local storage      | Yes                         | Path B      |
 | Global `pmr` resource     | Yes                         | Path B      |
 | Fiber-local storage       | Yes                         | Path B      |
@@ -229,6 +255,103 @@ The choice between Path A and Path B is a choice between two costs:
 | Ergonomic cost                    | High (viral parameter threading)         | Low (transparent to coroutine authors) |
 
 Path A makes the allocator visible in every signature. Path B makes it invisible. Path A requires every coroutine author to thread the allocator through every call site. Path B requires the protocol machinery to maintain the thread-local invariant. Both are correct. The tradeoff is signature pollution versus ambient state.
+
+### 7.1 The Ergonomic Cost of Path A
+
+The table above summarizes the tradeoff. The following example makes it concrete. Consider a three-deep coroutine chain: `accept_loop` calls `handle_request` calls `parse_header`.
+
+**Path A** - every signature carries the allocator, every call site forwards it:
+
+```cpp
+task<header, env> parse_header(
+    std::allocator_arg_t, auto alloc,
+    socket& s, buffer& buf)
+{
+    auto line = co_await s.read_some(buf);
+    co_return parse(line);
+}
+
+task<void, env> handle_request(
+    std::allocator_arg_t, auto alloc,
+    socket& s)
+{
+    buffer buf;
+    auto hdr = co_await parse_header(
+        std::allocator_arg, alloc, s, buf);
+    co_await s.write(make_response(hdr));
+}
+
+task<void, env> accept_loop(
+    std::allocator_arg_t, auto alloc,
+    acceptor& acc)
+{
+    while (true) {
+        auto s = co_await acc.accept();
+        co_await handle_request(
+            std::allocator_arg, alloc, s);
+    }
+}
+```
+
+**Path B** - clean signatures, plain calls:
+
+```cpp
+task<header> parse_header(
+    socket& s, buffer& buf)
+{
+    auto line = co_await s.read_some(buf);
+    co_return parse(line);
+}
+
+task<void> handle_request(socket& s)
+{
+    buffer buf;
+    auto hdr = co_await parse_header(
+        s, buf);
+    co_await s.write(make_response(hdr));
+}
+
+task<void> accept_loop(acceptor& acc)
+{
+    while (true) {
+        auto s = co_await acc.accept();
+        co_await handle_request(s);
+    }
+}
+```
+
+With Path A, the first two parameters of every coroutine have nothing to do with what the function does. `parse_header` parses a header from a socket. The allocator is infrastructure, not interface. Every tutorial, every example, every code review must explain the leading parameter pair. Forgetting `allocator_arg` at one call site is not a compile error - the code compiles, runs correctly, and silently falls back to the default allocator.
+
+With Path B, the coroutine signatures are pure domain logic. The allocator propagates through three coroutine frames without any coroutine author writing any allocator-related code.
+
+### 7.2 Compilation Model Consequences
+
+Path A with a generic allocator parameter (`auto alloc`) makes every coroutine a function template. This has consequences beyond ergonomics:
+
+- **Separate compilation.** A template coroutine must be visible at the point of instantiation. It cannot be compiled in one translation unit and called from another without exposing the full definition in a header.
+- **Virtual functions.** Templates cannot be virtual member functions. A coroutine that takes `auto alloc` cannot participate in a class hierarchy through virtual dispatch.
+- **Type erasure.** A template coroutine cannot be stored behind `std::function` or a vtable without first fixing the allocator type.
+
+Fixing the allocator type recovers separate compilation:
+
+```cpp
+using alloc_t =
+    std::pmr::polymorphic_allocator<std::byte>;
+
+task<void, env> handle_request(
+    std::allocator_arg_t, alloc_t alloc,
+    socket& s);
+```
+
+This is no longer a template. It can be separately compiled and virtual. But the allocator type is now hardcoded into every signature. Code that uses a different allocator type cannot call these coroutines without wrapping the allocator in a `polymorphic_allocator` at every call site.
+
+| Choice              | Separately compiled? | Any allocator? | Virtual? |
+| ------------------- | -------------------- | -------------- | -------- |
+| `auto alloc`        | No                   | Yes            | No       |
+| Fixed allocator     | Yes                  | PMR only       | Yes      |
+| Path B (no param)   | Yes                  | Yes            | Yes      |
+
+Path B sidesteps the entire question. The coroutine signature has no allocator parameter. It is not a template for allocator reasons. It can be separately compiled, virtual, and type-erased. The allocator type is the promise type's concern, not the function signature's concern.
 
 ---
 
@@ -287,11 +410,31 @@ Thread-local storage has a well-deserved reputation for creating hidden coupling
 
 ### 9.1 Platforms Without Thread-Local Storage
 
-Embedded systems, bare-metal targets, GPUs, and some RTOS environments do not provide thread-local storage. A mechanism that requires TLS excludes these platforms.
+The concern is that TLS excludes embedded systems, bare-metal targets, GPUs, and some RTOS environments. A survey of platforms reveals that this concern, while intuitive, defends a platform combination that does not exist in practice.
 
-The hybrid (Section 8) addresses this directly: the `allocator_arg_t` overload is always available. On platforms without TLS, the Path B overload falls back to `std::pmr::new_delete_resource()` - the same behavior as not customizing the frame allocator at all.
+Frame allocator customization requires three capabilities simultaneously: C++20 coroutines (the language feature), `<memory_resource>` (the standard PMR header, hosted-only<sup>[5]</sup>), and a heap worth customizing. The following table categorizes platforms by these capabilities:
 
-This limitation is not specific to the IoAwaitable protocol. On any platform without TLS, no coroutine library can propagate a frame allocator to `operator new` without putting it in the parameter list. The constraint is the language's, not the protocol's.
+| Platform category                    | Coroutines | `thread_local` | PMR    | Heap |
+| ------------------------------------ | ---------- | -------------- | ------ | ---- |
+| Desktop (Linux, Windows, macOS)      | Yes        | Yes            | Yes    | Yes  |
+| Mobile (iOS, Android)                | Yes        | Yes            | Yes    | Yes  |
+| Game consoles (Xbox, PS5)            | Yes        | Yes            | Yes    | Yes  |
+| Full RTOS (QNX, Zephyr, VxWorks)     | Yes        | Yes            | Hosted | Yes  |
+| Lightweight RTOS (FreeRTOS, Pico)    | Partial    | No             | No     | Yes  |
+| Bare metal (Cortex-M, RISC-V)       | Partial    | No             | No     | Rare |
+| GPU device code (CUDA, SYCL)        | No         | No             | No     | No   |
+
+Every platform in the top four rows - where all three capabilities are present - has `thread_local`. Every platform in the bottom three rows lacks at least one of the other prerequisites.
+
+Two cases deserve specific attention:
+
+- **Raspberry Pi Pico (RP2040).** Has C++20 coroutines (via community libraries), has `malloc`, but `thread_local` support remains an open pull request (targeted for SDK 2.3.0). However, the Pico SDK uses newlib in freestanding mode - `<memory_resource>` is not available. There is no `std::pmr::memory_resource` to propagate.
+
+- **Pigweed** (Google's embedded framework<sup>[6]</sup>). Has C++20 coroutines via `pw::async2::Coro`. Uses its own `pw::Allocator`, not PMR. Every coroutine takes a `CoroContext` (wrapping an allocator) as its first parameter - Path A by design. Pigweed chose Path A not because TLS is unavailable, but because it operates in freestanding environments where PMR does not exist.
+
+The `<memory_resource>` header is hosted-only<sup>[5]</sup>. Freestanding implementations are not required to provide it. Platforms without TLS are overwhelmingly freestanding. The intersection of "has `<memory_resource>`" and "lacks `thread_local`" is empty across every platform surveyed.
+
+The hybrid (Section 8) addresses the theoretical case: the `allocator_arg_t` overload is always available. On any hypothetical platform without TLS, the Path B overload falls back to `std::pmr::new_delete_resource()` - the same behavior as not customizing the frame allocator at all. But no such platform has been identified that also provides the hosted standard library features needed to make frame allocator customization meaningful.
 
 ### 9.2 Performance
 
@@ -389,3 +532,7 @@ The author thanks Michael Hava for identifying that R0 failed to distinguish lea
 3. [cppalliance/capy](https://github.com/cppalliance/capy) - Coroutine I/O primitives library. https://github.com/cppalliance/capy
 
 4. [P4003R1](https://wg21.link/p4003r1) - "Coroutines for I/O" (Vinnie Falco, Steve Gerbino, Mungo Gill, 2026). https://wg21.link/p4003r1
+
+5. [Freestanding and hosted implementations](https://en.cppreference.com/w/cpp/freestanding) - cppreference.com. `<memory_resource>` is not required for freestanding implementations. https://en.cppreference.com/w/cpp/freestanding
+
+6. [Pigweed pw_async2: Coroutines](https://pigweed.dev/pw_async2/coroutines.html) - Google's embedded C++20 coroutine framework. Every coroutine takes a `CoroContext` (wrapping a `pw::Allocator`) as its first parameter. https://pigweed.dev/pw_async2/coroutines.html
