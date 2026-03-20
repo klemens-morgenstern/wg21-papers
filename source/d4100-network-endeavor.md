@@ -8,6 +8,7 @@ reply-to:
   - "Michael Vandeberg <michael@cppalliance.org>"
   - "Mungo Gill <mungo@cppalliance.org>"
   - "Mohammad Nejati <mohammad@cppalliance.org>"
+  - "C++ Alliance Proposal Team"
 audience: LEWG
 ---
 

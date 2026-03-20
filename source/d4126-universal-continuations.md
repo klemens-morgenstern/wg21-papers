@@ -5,6 +5,7 @@ date: 2026-03-18
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
   - "Klemens Morgenstern <klemens.d.morgenstern@gmail.com>"
+  - "C++ Alliance Proposal Team"
 audience: EWG, SG1, LEWG
 ---
 

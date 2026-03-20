@@ -4,6 +4,7 @@ document: D4124R0
 date: 2026-03-18
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
+  - "C++ Alliance Proposal Team"
 audience: LEWG, SG1
 ---
 

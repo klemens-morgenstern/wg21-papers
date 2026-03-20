@@ -5,6 +5,7 @@ date: 2026-03-15
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
   - "Steve Gerbino <steve@gerbino.co>"
+  - "C++ Alliance Proposal Team"
 audience: LEWG
 ---
 

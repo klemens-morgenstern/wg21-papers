@@ -4,6 +4,7 @@ document: P4046R0
 date: 2026-02-25
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
+  - "C++ Alliance Proposal Team"
 audience: WG21
 --- 
 
