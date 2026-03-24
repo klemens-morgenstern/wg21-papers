@@ -1,6 +1,6 @@
 ---
 title: "Coroutines for I/O"
-document: D4003R2
+document: D4003R1
 date: 2026-03-24
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
@@ -19,17 +19,21 @@ We used C++20 coroutines directly for I/O - timers, sockets, DNS, TLS, HTTP - an
 
 ## Revision History
 
-### R2: March 2026 
-
-* Closed TLS spoilage gap in Section 5.4: intervening code between resume and child creation can overwrite the thread-local frame allocator. Introduced `safe_resume` save/restore protocol
-* Added non-normative note to executor concept (Section 10.3.3) requiring event loop pump sites to save and restore TLS around `.resume()` calls
-* Replaced `std::coroutine_handle<>` with `continuation` in the executor interface. The `continuation` struct embeds an intrusive list pointer, eliminating per-post heap allocation - the last steady-state allocation in the hot path
-
 ### R1: March 2026 (pre-Croydon mailing)
 
+* Added "Why Standardize" subsection to Section 1: committee record,
+  tower of abstraction argument, P4133 cost/benefit analysis.
+* Expanded implementation evidence in Section 3.
+* Added Section 9 "Evidence Framework" addressing P4133 requirements:
+  competing designs, case against standardization, decision record,
+  domain coverage, post-adoption metrics, retrospective commitment,
+  prediction registry.
 * Editorial: fixed list formatting, code line wrapping, acknowledgements
 * Expanded sequence diagram with explicit `set_environment`, `set_continuation`, and `handle.resume()` steps
 * Renamed "Boost.Http" to "Http" in body and references
+* Closed TLS spoilage gap in Section 5.4: intervening code between resume and child creation can overwrite the thread-local frame allocator. Introduced `safe_resume` save/restore protocol
+* Added non-normative note to executor concept (Section 11.3.3) requiring event loop pump sites to save and restore TLS around `.resume()` calls
+* Replaced `std::coroutine_handle<>` with `continuation` in the executor interface. The `continuation` struct embeds an intrusive list pointer, eliminating per-post heap allocation - the last steady-state allocation in the hot path
 
 ### R0: March 2026 (pre-Croydon mailing)
 
@@ -66,6 +70,24 @@ I/O applications share four requirements:
 3. **The application decides frame allocation.** The allocator is a property of the coroutine chain, not of the operation.
 
 4. **The execution context owns its I/O objects.** A socket knows its event loop. The call site does not.
+
+### Why Standardize
+
+Networking has been a stated committee priority for nearly a decade. [P0592R0](https://wg21.link/p0592r5) (2017)<sup>[13]</sup> listed networking as one of four primary C++20 priorities. [P0592R2](https://wg21.link/p0592r5)<sup>[13]</sup> elevated it to a "must-work-on-first" item for C++23. The 2021 LEWG polls<sup>[14]</sup><sup>[15]</sup> found weak consensus against the Networking TS async model as a general-purpose basis (5 SF, 10 WF, 6 N, 14 WA, 18 SA) and weak consensus that networking should be based on sender/receiver (17-11-10-4-6). [P0592R5](https://wg21.link/p0592r5)<sup>[13]</sup> dropped networking from C++26 priorities entirely: "The earlier direction/approach for Networking didn't have consensus." SG4 at Kona (November 2023) reached consensus that networking should use only a sender/receiver model. By 2025, SG4 declared the Networking TS "no longer relevant." [P3185R0](https://wg21.link/p3185r0)<sup>[17]</sup> and [P3482R0](https://wg21.link/p3482r0)<sup>[18]</sup> proposed a TAPS-based direction that remains under review.
+
+The committee is not asking whether to standardize networking. It has answered that question repeatedly, across three standard cycles, and the answer is yes. The open question is how. The coroutine-native approach described in this paper was not among the alternatives considered at the time of the Kona poll.
+
+Every mature language ecosystem has a tower of networking abstractions. Python has Django and Flask. Go has `net/http` and everything built on it. Rust has tokio, hyper, and axum. JavaScript has Express and Next.js. These towers exist because each language has a standard or de facto standard networking foundation that every library builds upon.
+
+C++ does not have this tower - and the ecosystem has had twenty years to build it. [Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html)<sup>[3]</sup> has been available since 2003. In over twenty years, the ecosystem has not produced a standard HTTP framework, a standard WebSocket library, or a web application framework. The `vcpkg` and Conan catalogs do not approach the depth of npm or pip for networking applications. The reason is not that C++ developers do not want these things. The reason is that there is no standard foundation to build them on. Every async I/O library invents its own model. An HTTP library built on one model cannot compose with a database library built on another. The tower cannot be built from incompatible foundations - and twenty years of evidence proves it.
+
+Networking is where the tower starts. Sockets, DNS, TLS - these are the base layer. On top of them you build HTTP. On top of HTTP you build WebSocket, REST APIs, JSON-RPC. On top of those you build web frameworks, application servers, microservice toolkits. Each layer depends on the one below. Without a standard base layer, none of the layers above can be standard either.
+
+The wrong foundation would be worse than none. Alternative coroutine task designs propagate the frame allocator through `allocator_arg_t` in every function signature (Section 5.2 demonstrates the damage). If such a design were standardized, every public interface of every library across the C++ ecosystem would carry allocator parameters unrelated to the library's purpose. That pollution would be permanent - standardized interfaces cannot be un-standardized. The _IoAwaitable_ protocol solves this with thread-local propagation: the frame allocator is invisible to every coroutine except the launch site. Getting this right in the standard matters because getting it wrong in the standard is irreversible.
+
+Performance requires the frame allocator; ergonomics require TLS. The benchmarks in Section 2.3 show a 3.1x speedup over `std::allocator` and 1.28x over mimalloc. This performance is necessary for C++ to remain competitive with other language ecosystems for I/O workloads. But the performance is worthless if every route handler, every query function, every application-level coroutine must thread the allocator through its signature. The TLS mechanism delivers the performance without the ergonomic cost. Both parts - the frame allocator and the propagation mechanism - must be standardized together.
+
+The specification is small: two concepts, one struct, one type-erased executor, two launch functions. This is the minimum a library needs to participate in the ecosystem. The implementer burden is proportionate. The cost of continued inaction is measured in standard cycles - three so far, each naming networking as a priority and each failing to deliver. Once this vocabulary is standard, any HTTP library, any WebSocket library, any database driver that satisfies the protocol can compose with any other. The tower becomes buildable.
 
 ---
 
@@ -122,7 +144,7 @@ flowchart LR
 
 > To help readers understand how these requirements fit together, this paper provides the `io_awaitable_promise_base` CRTP mixin (Section 7) as a non-normative reference implementation. It is not proposed for standardization - implementors may write their own machinery - but examining it clarifies how the protocol works in practice. The mixin also provides the `this_coro::environment` accessor, which allows coroutines to retrieve their bound context without suspending.
 
-[Capy](https://github.com/cppalliance/capy)<sup>[5]</sup> implements the _IoAwaitable_ protocol. [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup>, built on Capy, provides sockets, timers, TLS, and DNS resolution on multiple platforms. Both libraries are in active use. The code examples in this paper are drawn from them.
+[Capy](https://github.com/cppalliance/capy)<sup>[5]</sup> implements the _IoAwaitable_ protocol. [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup>, built on Capy, provides sockets, timers, TLS, and DNS resolution on multiple platforms. Both libraries are in active use and include unit tests covering protocol conformance, frame allocation, cancellation propagation, and cross-platform behavior. Corosio has been benchmarked on Linux (epoll, io_uring), Windows (IOCP), and macOS (kqueue). [Http](https://github.com/cppalliance/http)<sup>[8]</sup>, an HTTP library built on Capy, ships as a compiled library with stable ABI, demonstrating that the single template parameter on `task<T>` enables separate compilation in practice. All three libraries are open-source, buildable with CMake, and available on GitHub. The code examples in this paper are drawn from them.
 
 ### 3.1 _IoAwaitable_
 
@@ -1218,7 +1240,108 @@ These libraries arose from use-case-first development with a simple mandate: use
 
 ---
 
-## 9. Suggested Straw Polls
+## 9. Evidence Framework
+
+This section addresses the structured evidence requirements described in [P4133R0](https://isocpp.org/files/papers/P4133R0.pdf) "What Every Proposal Must Contain"<sup>[11]</sup>.
+
+The protocol described in this paper was not designed top-down from theory. It was discovered bottom-up from working code. We started from an empty directory - an empty `.cpp` file, an empty `.hpp` file - with nothing inherited and no existing framework assumed. We added one thing at a time: a coroutine, then an executor, then a stop token, then a frame allocator. At each step we added exactly what the next use case demanded and nothing more. The result is the smallest abstraction from which nothing can be removed and still remain functional. Every design decision recorded below was forced by this process - not chosen from a menu of options but discovered as the only thing that worked. The evidence is the code itself.
+
+### 9.1 Competing Designs
+
+Four alternative approaches address the same problem space. Each has genuine advantages. We present each at its strongest before explaining why _IoAwaitable_ is preferred for I/O.
+
+**Sender/receiver ([P2300R10](https://wg21.link/p2300r10)<sup>[12]</sup>).** The committee-adopted framework for structured asynchronous execution. Its advantages are real: generality across I/O, GPU, and parallel workloads; a formal algebra of sender composition; strong structured-concurrency guarantees; and significant investment from NVIDIA, Meta, and Bloomberg. For domains that require DAG-shaped execution graphs - GPU kernel fusion, heterogeneous compute pipelines, complex parallel algorithms - sender/receiver provides machinery that _IoAwaitable_ does not attempt. Where sender/receiver is weakest is in the I/O-specific properties that drive this paper: it requires a second template parameter on the task type (making separate compilation and ABI stability difficult), it does not define a frame allocator propagation mechanism, and the sender composition algebra adds conceptual weight that I/O coroutines - which are sequential by nature - do not use. [P4007R0](https://wg21.link/p4007r0)<sup>[1]</sup> and [P4014R0](https://wg21.link/p4014r0)<sup>[2]</sup> examine this relationship in detail.
+
+**Boost.Asio completion handlers ([Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html)<sup>[3]</sup>).** The most widely deployed C++ async I/O model, with over twenty years of production use. Its advantages are maturity, extensive documentation, and a large existing codebase. It supports coroutines through completion tokens. The 2021 LEWG polls<sup>[15]</sup> found weak consensus against the Networking TS async model as a general-purpose basis (5 SF, 10 WF, 6 N, 14 WA, 18 SA), primarily due to concerns about composability, error handling between work submission and continuation invocation<sup>[16]</sup>, and unsuitability for GPU workloads. For I/O specifically, the Asio model remains capable, but the completion-token mechanism requires each call site to specify how it will be consumed, and the absence of a standard frame allocator propagation mechanism forces either `allocator_arg_t` signature pollution or reliance on `shared_ptr` for lifetime management.
+
+**Pure coroutine libraries (cppcoro, libcoro).** These provide coroutine task types and synchronization primitives without a formal protocol. Their advantage is simplicity - a task type, a scheduler, and nothing else. The limitation is that each library defines its own model. An HTTP library built on cppcoro cannot compose with a database driver built on libcoro. Without a shared protocol, each library is an island.
+
+**Do nothing.** Leave coroutine I/O execution models to the ecosystem. The advantage is zero standardization cost and maximum freedom for library authors. The disadvantage is twenty years of evidence: [Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html)<sup>[3]</sup> has been available since 2003. In that time, the ecosystem has not produced a standard HTTP framework, a standard WebSocket library, or a web application framework comparable to what other language ecosystems provide. Each C++ networking library builds on a different async model. The higher layers of the abstraction tower - the layers that application developers need - have not emerged because the foundation is not shared.
+
+### 9.2 Case Against Standardization
+
+The strongest argument against standardization: Capy, Corosio, and Http already exist as open-source libraries. Any project that needs _IoAwaitable_ can depend on them directly. The protocol relies on thread-local storage, which may not be available or performant on all target platforms. The two-call launch syntax (`run_async(ex)(task())`) is a workaround for a language limitation in `operator new` timing. The design is young - the first implementation is months old, not years.
+
+Each point deserves a direct response.
+
+**"The ecosystem can deliver this."** It has not. Boost.Asio has been available for over twenty years. In that time, the C++ ecosystem has not produced the tower of abstractions that every other major language ecosystem enjoys. There is no Django of C++. There is no standard HTTP framework. The `vcpkg` and Conan catalogs do not approach the depth of npm or pip for networking applications. The reason is that every C++ networking library is an island - each builds on a different async model, so they cannot compose. The ecosystem cannot converge on a common vocabulary without standardization, because the entire point of a vocabulary is that everyone can depend on it being there. Twenty years of evidence is sufficient to conclude that the ecosystem alone will not produce a shared foundation.
+
+**"Thread-local storage is problematic."** Section 5.5 addresses the TLS concerns directly. The thread-local here is a write-through cache with exactly one purpose: deliver a `memory_resource*` to `operator new`. It is written before every coroutine invocation and read in exactly one place. Thread migration is handled: every resume path restores TLS from the heap-stable `io_env` before the coroutine body continues. The standard library already accepted this approach: `std::pmr::get_default_resource()` is a process-wide thread-local allocator channel, adopted in C++17. For platforms without thread-local storage, implementations may use whatever mechanism is available - the interface is two free functions, not a language feature.
+
+**"The two-call syntax is a workaround."** It is. The syntax exists because `operator new` executes before the coroutine body, and no mechanism exists to inject the frame allocator after invocation. A future language change could eliminate the need. But the alternative - threading `allocator_arg_t` through every coroutine signature in every library across the ecosystem - is worse, and that damage would be permanent if standardized. The two-call syntax is localized to launch sites. Application-level coroutines never see it.
+
+**"The design is young."** The protocol is young. The patterns it captures are not. Type-erased executors, stop-token cancellation, and per-chain frame allocation have been refined across years of networking library development. The protocol is small because it was distilled from experience, not because it is incomplete. What matters is whether the protocol is correct - and three deployed libraries across multiple platforms provide that evidence.
+
+### 9.3 Decision Record
+
+Each major design decision was forced by the bottom-up development process described above. This section consolidates the rationale, documents trade-offs, and states conditions for revisiting.
+
+**Two-argument `await_suspend(coroutine_handle<>, io_env const*)`** (Section 3.1). The only signature that makes protocol violations a compile error. A non-compliant awaitable produces a compile-time failure when a compliant coroutine's `await_transform` calls the two-argument form. The alternative - templating on the promise type - compiles silently when mismatched and produces runtime errors. *Trade-off:* the signature is non-standard; existing awaitables must be adapted. *Revisit if:* the language gains a mechanism for statically verifying awaitable-promise compatibility without a custom `await_suspend` signature.
+
+**Thread-local frame allocator propagation** (Sections 5.2-5.5). The only mechanism that respects `operator new` timing without polluting coroutine signatures with `allocator_arg_t`. The frame allocator must be available before the coroutine frame exists. Standard approaches (parameter threading, post-construction injection) arrive too late. *Trade-off:* relies on thread-local storage; introduces a non-obvious propagation path. *Revisit if:* the language gains a mechanism to inject allocator context into `operator new` without function parameters.
+
+**Type-erased `executor_ref`** (Section 3.3). The only way to keep `task<T>` at one template parameter. Alternatives that preserve the executor type in the task type produce `task<T, Executor>`, which prevents separate compilation and ABI stability. The vtable cost is one pointer indirection - roughly 1-2 nanoseconds - negligible for I/O operations. *Trade-off:* type information is lost behind the erasure boundary. *Revisit if:* the overhead proves measurable relative to I/O latency in a validated benchmark.
+
+**`io_env` passed by pointer** (Section 3.1). The launch function owns the `io_env`. Every coroutine in the chain borrows it. Pointer semantics make this ownership model explicit and make accidental copies difficult. *Trade-off:* nullable pointer; requires documentation of lifetime invariant. *Revisit if:* a reference-based alternative can enforce the same ownership semantics without adding a nullable state.
+
+**`execution_context` as a base class** (Section 4.3). I/O objects need the platform reactor, not the executor. A socket registers with epoll, IOCP, or kqueue through the execution context, not through the executor. The executor is a lightweight handle; the context owns the reactor and its services. *Trade-off:* virtual `shutdown()` in the service base class; runtime polymorphism in the service registry. *Revisit if:* a compile-time service mechanism can provide the same ordered-shutdown guarantees.
+
+### 9.4 Domain Coverage
+
+The _IoAwaitable_ protocol has been validated in the following I/O domains through deployed implementations:
+
+| Domain           | Implementation         | Platform coverage                 |
+| ---------------- | ---------------------- | --------------------------------- |
+| TCP/UDP sockets  | Corosio<sup>[6]</sup>  | Linux (epoll, io_uring), Windows (IOCP), macOS (kqueue) |
+| TLS              | Corosio<sup>[6]</sup>  | All supported platforms via OpenSSL                      |
+| DNS resolution   | Corosio<sup>[6]</sup>  | All supported platforms                                  |
+| HTTP/1.1         | Http<sup>[8]</sup>     | All supported platforms                                  |
+| Timers           | Corosio<sup>[6]</sup>  | All supported platforms                                  |
+
+Domains not yet validated:
+
+- **Embedded/real-time** - thread-local storage may be unavailable or expensive; bounded-memory frame allocators need testing
+- **File I/O** - completion patterns differ from socket I/O; the protocol should apply but has not been demonstrated
+- **Database I/O** - query-response patterns differ from byte-stream I/O
+- **Game engines** - custom job systems with different scheduling constraints
+- **GPU compute** - explicitly deferred to sender/receiver; see [P4007R0](https://wg21.link/p4007r0)<sup>[1]</sup>
+
+### 9.5 Post-Adoption Metrics
+
+The following measurable criteria define successful adoption:
+
+1. **Implementation breadth.** At least two major standard library implementations (libstdc++, libc++, or MSVC STL) ship a conforming _IoAwaitable_ implementation within two releases of the standard that adopts it.
+2. **Library adoption.** At least three independently developed I/O libraries adopt the _IoAwaitable_ protocol within five years of standardization.
+3. **Interoperability.** At least one demonstrated case of two independently developed libraries (e.g., an HTTP library and a database driver) composing through the protocol without glue code.
+4. **Frame allocator robustness.** The thread-local frame allocator mechanism produces correct behavior on all three major platforms without platform-specific workarounds.
+5. **Developer comprehension.** Developer surveys or conference feedback show that the two-call launch syntax and the TLS propagation mechanism are understood by a majority of C++ developers who use coroutines for I/O.
+
+### 9.6 Retrospective Commitment
+
+We commit to a retrospective at two standard releases or six years after standardization, whichever comes first. The retrospective must answer:
+
+1. Did major implementations ship? If not, what blocked them?
+2. Did independent libraries adopt the protocol? If not, what prevented interoperability?
+3. Did the thread-local frame allocator mechanism prove robust across platforms?
+4. Did the two-call launch syntax prove acceptable to users, or did workarounds proliferate?
+5. Did the single template parameter on `task<T>` remain sufficient as the ecosystem grew?
+6. Did the vtable overhead of `executor_ref` remain negligible relative to I/O latency?
+7. What design limitations emerged in practice that were not anticipated?
+
+### 9.7 Prediction Registry
+
+| # | Prediction                                                                                       | Criterion                                                                                      | Revisit     |
+|---|--------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|-------------|
+| 1 | The _IoAwaitable_ protocol is sufficient for all byte-oriented I/O domains                       | Implementation attempts in file I/O, database I/O, and IPC succeed without protocol extensions | +3 years    |
+| 2 | The thread-local frame allocator achieves within 10% of benchmarked performance on all platforms  | Benchmark comparison on libstdc++, libc++, MSVC STL                                            | +2 releases |
+| 3 | The two-call launch syntax does not become a barrier to adoption                                  | Developer survey shows >60% find it acceptable or transparent                                  | +3 years    |
+| 4 | The vtable overhead of `executor_ref` remains below 5% of total I/O operation cost               | Microbenchmark on representative workloads across platforms                                    | +2 releases |
+| 5 | The single template parameter on `task<T>` remains sufficient for the ecosystem                   | No widely adopted library requires a second template parameter for environment or executor type | +5 years    |
+| 6 | At least three independent libraries adopt the protocol within five years                         | Count of libraries on vcpkg/Conan that declare _IoAwaitable_ conformance                      | +5 years    |
+
+---
+
+## 10. Suggested Straw Polls
 
 SG4 polled at Kona (November 2023) on [P2762R2](https://wg21.link/p2762r2) "Sender/Receiver Interface For Networking"<sup>[9]</sup>:
 
@@ -1238,11 +1361,11 @@ The approach described in this paper - a coroutine-native I/O model using C++20 
 
 ---
 
-## 10. Thoughts on Wording
+## 11. Thoughts on Wording
 
 > **Non-normative note.** The wording below is not primarily intended for standardization. Its purpose is to demonstrate how a use-case-first design produces a lean specification footprint, and to show how compact an execution model becomes when designed specifically for I/O workloads.
 
-### 10.1 Header `<io_awaitable>` synopsis [ioawait.syn]
+### 11.1 Header `<io_awaitable>` synopsis [ioawait.syn]
 
 ```cpp
 namespace std {
@@ -1282,7 +1405,7 @@ namespace std {
 }
 ```
 
-### 10.2 Struct `io_env` [ioawait.env]
+### 11.2 Struct `io_env` [ioawait.env]
 
 ```cpp
 namespace std {
@@ -1304,7 +1427,7 @@ namespace std {
 
 5 The `frame_allocator` member, when non-null, identifies the memory resource used for coroutine frame allocation in the chain. A null value indicates that no frame allocator was specified at the launch site; the implementation is free to use any allocation strategy.
 
-### 10.2a Struct `continuation` [ioawait.cont]
+### 11.2a Struct `continuation` [ioawait.cont]
 
 ```cpp
 namespace std {
@@ -1321,9 +1444,9 @@ namespace std {
 
 3 Both members are public. The `h` member holds the coroutine handle to resume. The `next_` member is used by executor implementations for intrusive queue linkage.
 
-### 10.3 Concepts [ioawait.concepts]
+### 11.3 Concepts [ioawait.concepts]
 
-#### 10.3.1 Concept `io_awaitable` [ioawait.concepts.awaitable]
+#### 11.3.1 Concept `io_awaitable` [ioawait.concepts.awaitable]
 
 ```cpp
 template<class A>
@@ -1345,7 +1468,7 @@ concept io_awaitable =
 
 3 [ *Note:* The two-argument `await_suspend` signature distinguishes `io_awaitable` types from standard awaitables. A compliant coroutine's `await_transform` calls this signature, enabling static detection of protocol mismatches at compile time. *- end note* ]
 
-#### 10.3.2 Concept `io_runnable` [ioawait.concepts.runnable]
+#### 11.3.2 Concept `io_runnable` [ioawait.concepts.runnable]
 
 ```cpp
 template<class T>
@@ -1381,7 +1504,7 @@ concept io_runnable =
 
 3 [ *Note:* The `handle()` and `release()` methods enable launch functions to manage task lifetime directly. After `release()`, the launch function assumes responsibility for destroying the coroutine frame. *- end note* ]
 
-#### 10.3.3 Concept `executor` [ioawait.concepts.executor]
+#### 11.3.3 Concept `executor` [ioawait.concepts.executor]
 
 ```cpp
 template<class E>
@@ -1426,7 +1549,7 @@ concept executor =
 
 7 [ *Note:* When an execution context's event loop dequeues a `coroutine_handle<>` for resumption, it should save the thread-local frame allocator before calling `h.resume()` and restore it afterward. This ensures that a resumed coroutine cannot spoil the frame allocator of the coroutine that was executing on the same thread before the event loop iteration. A convenience function `safe_resume` encapsulates this protocol (Section 5.4). Failure to save and restore does not cause memory corruption - `operator delete` reads the frame allocator from the frame footer - but can cause frames to be allocated from the wrong memory resource. *- end note* ]
 
-#### 10.3.4 Concept `ExecutionContext` [ioawait.concepts.execctx]
+#### 11.3.4 Concept `ExecutionContext` [ioawait.concepts.execctx]
 
 ```cpp
 template<class X>
@@ -1453,7 +1576,7 @@ concept ExecutionContext =
 
 3 [ *Note:* The destructor requirement ensures orderly cleanup - work queued but not yet executed does not leak or outlive its context. Types such as `io_context` and `thread_pool` satisfy this concept. *- end note* ]
 
-### 10.4 Class `executor_ref` [ioawait.execref]
+### 11.4 Class `executor_ref` [ioawait.execref]
 
 1 Class `executor_ref` is a type-erasing wrapper for executors satisfying the `executor` concept. It provides a uniform, non-templated interface for executor operations.
 
@@ -1490,7 +1613,7 @@ namespace std {
 
 3 [ *Note:* At two pointers in size, `executor_ref` is designed for efficient propagation through coroutine chains. The `dispatch` member returns a `coroutine_handle<>` for symmetric transfer, enabling zero-overhead resumption when executors match. *- end note* ]
 
-#### 10.4.1 `executor_ref` constructors [ioawait.execref.cons]
+#### 11.4.1 `executor_ref` constructors [ioawait.execref.cons]
 ```cpp
 executor_ref() = default;
 ```
@@ -1508,7 +1631,7 @@ template<executor E>
 
 4 *Remarks:* The behavior is undefined if `e` is destroyed or becomes invalid while `*this` or any copy of `*this` still exists. [ *Note:* In typical usage, the referenced executor is stored in a launch function's frame or a coroutine promise, which outlives all `executor_ref` copies propagated through the coroutine chain. *- end note* ]
 
-#### 10.4.2 `executor_ref` observers [ioawait.execref.obs]
+#### 11.4.2 `executor_ref` observers [ioawait.execref.obs]
 
 ```cpp
 explicit operator bool() const noexcept;
@@ -1522,7 +1645,7 @@ bool operator==(executor_ref const& other) const noexcept;
 
 2 *Returns:* `true` if `*this` and `other` both refer to the same executor object (by address), or if both are empty. If both refer to executors of the same type, returns the result of the underlying executor's `operator==`. Otherwise `false`.
 
-#### 10.4.3 `executor_ref` operations [ioawait.execref.ops]
+#### 11.4.3 `executor_ref` operations [ioawait.execref.ops]
 
 ```cpp
 execution_context& context() const noexcept;
@@ -1568,7 +1691,7 @@ void post(continuation& c) const;
 
 12 *Synchronization:* The invocation of `post` synchronizes with the resumption of `c.h`.
 
-#### 10.4.4 `executor_ref` target access [ioawait.execref.target]
+#### 11.4.4 `executor_ref` target access [ioawait.execref.target]
 
 ```cpp
 template<executor E> E const* target() const noexcept;
@@ -1579,7 +1702,7 @@ template<executor E> E* target() noexcept;
 
 2 *Remarks:* The returned pointer is invalidated when `*this` is destroyed or assigned to.
 
-### 10.5 Class `execution_context` [ioawait.execctx]
+### 11.5 Class `execution_context` [ioawait.execctx]
 
 1 Class `execution_context` is the base class for objects that manage a set of services and provide an execution environment for I/O operations. Derived classes typically provide platform-specific reactor integration (epoll, IOCP, io_uring, kqueue).
 
@@ -1634,7 +1757,7 @@ namespace std {
 
 6 The functions `use_service`, `make_service`, `find_service`, and `has_service` do not introduce data races as a result of concurrent calls from different threads.
 
-#### 10.5.1 `execution_context` constructors and destructor [ioawait.execctx.cons]
+#### 11.5.1 `execution_context` constructors and destructor [ioawait.execctx.cons]
 
 ```cpp
 execution_context();
@@ -1648,7 +1771,7 @@ execution_context();
 
 2 *Effects:* Destroys an object of class `execution_context`. Performs `shutdown()` followed by `destroy()`.
 
-#### 10.5.2 `execution_context` protected operations [ioawait.execctx.protected]
+#### 11.5.2 `execution_context` protected operations [ioawait.execctx.protected]
 
 ```cpp
 void shutdown() noexcept;
@@ -1662,7 +1785,7 @@ void destroy() noexcept;
 
 2 *Effects:* Destroys each service object in the `execution_context` set, and removes it from the set, in reverse order of addition to the set.
 
-#### 10.5.3 `execution_context` service access [ioawait.execctx.services]
+#### 11.5.3 `execution_context` service access [ioawait.execctx.services]
 
 ```cpp
 template<class Service> bool has_service() const noexcept;
@@ -1700,7 +1823,7 @@ template<class Service, class... Args> Service& make_service(Args&&... args);
 
 10 *Remarks:* The reference returned remains valid until a call to `destroy()`.
 
-#### 10.5.4 `execution_context` frame allocator [ioawait.execctx.alloc]
+#### 11.5.4 `execution_context` frame allocator [ioawait.execctx.alloc]
 
 ```cpp
 pmr::memory_resource* get_frame_allocator() const noexcept;
@@ -1730,7 +1853,7 @@ void set_frame_allocator(Allocator const& a);
 
 7 [ *Note:* The frame allocator is a quality of implementation concern. A conforming implementation may ignore the frame allocator parameter entirely, and programs should still behave correctly. The frame allocator mechanism is provided to enable performance optimizations such as thread-local recycling pools or bounded allocation strategies, but correct program behavior must not depend on a specific frame allocation strategy being used. *- end note* ]
 
-#### 10.5.5 `execution_context` target access [ioawait.execctx.target]
+#### 11.5.5 `execution_context` target access [ioawait.execctx.target]
 
 ```cpp
 template<class X> X const* target() const noexcept;
@@ -1741,7 +1864,7 @@ template<class X> X* target() noexcept;
 
 2 *Remarks:* `X` shall be publicly and unambiguously derived from `execution_context`.
 
-#### 10.5.6 Class `execution_context::service` [ioawait.execctx.service]
+#### 11.5.6 Class `execution_context::service` [ioawait.execctx.service]
 
 ```cpp
 class execution_context::service {
@@ -1757,11 +1880,11 @@ protected:
 
 2 A service's `shutdown` member function shall destroy all copies of function objects that are held by the service.
 
-### 10.6 Launch functions [ioawait.launch]
+### 11.6 Launch functions [ioawait.launch]
 
 1 Launch functions bootstrap execution context into a coroutine chain. They are the bridge between non-coroutine code and the `io_awaitable` protocol.
 
-#### 10.6.1 Function template `run_async` [ioawait.launch.async]
+#### 11.6.1 Function template `run_async` [ioawait.launch.async]
 
 ```cpp
 template<executor Ex, class... Args>
@@ -1810,7 +1933,7 @@ run_async(ex,
 
 *- end example* ]
 
-#### 10.6.2 Function template `run` [ioawait.launch.run]
+#### 11.6.2 Function template `run` [ioawait.launch.run]
 
 ```cpp
 template<executor Ex, class... Args>
@@ -1867,7 +1990,7 @@ task<void> with_custom_token() {
 
 *- end example* ]
 
-### 10.7 Namespace `this_coro` [ioawait.thiscoro]
+### 11.7 Namespace `this_coro` [ioawait.thiscoro]
 
 ```cpp
 namespace std::this_coro {
@@ -1878,7 +2001,7 @@ namespace std::this_coro {
 
 1 The `this_coro` namespace provides tag objects that can be awaited within a coroutine to retrieve execution context information without suspension.
 
-#### 10.7.1 `this_coro::environment` [ioawait.thiscoro.environment]
+#### 11.7.1 `this_coro::environment` [ioawait.thiscoro.environment]
 
 ```cpp
 inline constexpr environment_tag environment;
@@ -1908,7 +2031,7 @@ task<void> cancellable_work() {
 
 *- end example* ]
 
-### 10.8 Threading and synchronization [ioawait.sync]
+### 11.8 Threading and synchronization [ioawait.sync]
 
 1 Unless otherwise specified, it is safe to call `const` member functions of the classes defined in this clause concurrently from multiple threads.
 
@@ -2332,3 +2455,11 @@ The authors would like to thank Chris Kohlhoff for Boost.Asio and Lewis Baker fo
 8. [Http](https://github.com/cppalliance/http) - HTTP library built on Capy (Vinnie Falco). https://github.com/cppalliance/http
 9. [P2762R2](https://wg21.link/p2762r2) - "Sender/Receiver Interface For Networking" (Dietmar K&uuml;hl, 2023). https://wg21.link/p2762r2
 10. [Compiler Explorer](https://godbolt.org/z/Wzrb7McrT) - Self-contained IoAwaitable demonstration. https://godbolt.org/z/Wzrb7McrT
+11. [P4133R0](https://isocpp.org/files/papers/P4133R0.pdf) - "What Every Proposal Must Contain" (Vinnie Falco, Mungo Gill). https://isocpp.org/files/papers/P4133R0.pdf
+12. [P2300R10](https://wg21.link/p2300r10) - "`std::execution`" (Dominiak, Baker, Howes, Shoop, Garland, Niebler, Lelbach, 2024). https://wg21.link/p2300r10
+13. [P0592R5](https://wg21.link/p0592r5) - "To boldly suggest an overall plan for C++26" (Ville Voutilainen, 2022). https://wg21.link/p0592r5
+14. [P2452R0](https://wg21.link/p2452r0) - "2021 October Library Evolution Polls on Networking and Executors" (Lelbach, Fracassi, Craig). https://wg21.link/p2452r0
+15. [P2453R0](https://wg21.link/p2453r0) - "2021 October Library Evolution Poll Outcomes" (Lelbach, Fracassi, Craig, 2022). https://wg21.link/p2453r0
+16. [P2464R0](https://wg21.link/p2464r0) - "Ruminations on networking and executors" (Ville Voutilainen, 2021). https://wg21.link/p2464r0
+17. [P3185R0](https://wg21.link/p3185r0) - "A proposed direction for C++ Standard Networking based on IETF TAPS" (Thomas Rodgers, 2024). https://wg21.link/p3185r0
+18. [P3482R0](https://wg21.link/p3482r0) - "Design for C++ networking based on IETF TAPS" (Thomas Rodgers, Dietmar K&uuml;hl, 2024). https://wg21.link/p3482r0
