@@ -25,7 +25,7 @@ audience: LEWG
 
 Safe interfaces should be the default. They should validate input, maintain invariants, and protect users from misuse. However, C++ also needs an explicit path for trusted data - when the precondition is already satisfied at a boundary and re-validation is pure overhead.
 
-This pattern appears in the standard library, in production Boost libraries, in the current `cstring_view` proposal, and in coroutine-based concurrency libraries. Four independent examples follow. A fifth section applies the pattern to `cstring_view` constructor design.
+This pattern appears in the standard library, in production Boost libraries, in the current `cstring_view` proposal, and in coroutine-based concurrency libraries. Four independent examples follow. A fifth section applies the pattern to `cstring_view` constructor design. A sixth examines what happens when the pattern is applied to the implicit `char const*` constructor.
 
 ## 2. Standard Precedent
 
@@ -113,6 +113,8 @@ The consequences of misuse are higher in concurrency than in data validation - a
 
 [P3655R3](https://wg21.link/p3655r3)<sup>[10]</sup> ("cstring_view") proposes `std::cstring_view`, a non-owning view guaranteed to be null-terminated. The type fills a real gap: `std::string` owns and null-terminates, `std::string_view` does not own and does not null-terminate, and `cstring_view` does not own but does null-terminate. Over 2,100 independent implementations on GitHub confirm the demand. The `substr` split - one-argument returning `cstring_view`, two-argument returning `string_view` - and the deletion of `remove_suffix` show careful attention to the null-termination invariant.
 
+[P3566R2](https://wg21.link/p3566r2)<sup>[11]</sup> ("You shall not pass `char*`") independently arrives at the same pattern for `string` and `string_view`: deprecate the `char const*` constructor as an unbounded-range operation, add a bounded `char[N]` constructor for arrays, and provide an explicitly tagged `unsafe_length_t` replacement for the deprecated path. The escape-hatch structure - safe default, explicit opt-in - is identical to the pattern documented in Sections 2-5.
+
 The escape-hatch pattern from Sections 2-5 applies directly to the constructor set. P3655R3's pointer-and-length constructor has a narrow contract:
 
 ```cpp
@@ -183,9 +185,52 @@ The contract requires `*(begin + (end - begin)) == '\0'` - the iterator at posit
 - **B.** Require only `[begin, end)` readable, scan the half-open range for the first null.
 - **C.** Remove the constructor. No demonstrated use case requires it that the pointer-and-length constructor does not already serve. Real-world `cstring_view` usage originates from `const char*` (C APIs, OS calls, string literals) or from `std::string` (implicit conversion). Ship the type without this constructor; add it later when evidence of need emerges.
 
-## 7. Conclusion
+## 7. The Implicit Constructor
 
-The standard library already provides constrained defaults with explicit broader counterparts. Production libraries independently converge on the same pattern for trusted boundaries. The same principle governs concurrency structure. This paper asks for no wording and no poll. It asks the committee to recognize a design value: safe by default, with explicit escape hatches where zero-cost composition requires them.
+P3566R2's `char[N]` constructor is a genuine improvement. It captures bounds at compile time, eliminates `strlen` for string literals, and provides bounded safety for array sources.
+
+The `char const*` constructor that P3566R2 deprecates is implicit. That property is load-bearing. Every function that accepts `string_view` or `cstring_view` today silently accepts `char const*` at the call site - no tag, no cast, no ceremony. Deprecating the implicit constructor does not degrade one API. It degrades every call site where a `char const*` crosses into a function taking a view type.
+
+The standard library's own error-reporting interface returns `char const*`:
+
+```cpp
+void log_error(std::string_view msg);
+
+try { /* ... */ }
+catch (std::exception const& e) {
+    log_error(e.what());              // today
+    log_error(std::string_view(       // under P3566
+        unsafe_length, e.what()));
+}
+```
+
+C library functions exhibit the same pattern. `std::getenv()`, `std::strerror()`, and `std::setlocale()` return `char const*` and always will:
+
+```cpp
+void configure(cstring_view path);
+
+configure(std::getenv("HOME"));       // today
+configure(cstring_view(               // under P3566
+    unsafe_length,
+    std::getenv("HOME")));
+```
+
+P3566R2 documents that certain language constructs force array-to-pointer decay - notably, the ternary operator and initializer lists<sup>[11]</sup>. Both operands in `cond ? "first" : "second"` are string literals. Both are arrays. The language decays them to `char*` before overload resolution. The `char[N]` constructor cannot intercept:
+
+```cpp
+void f(std::string_view s);
+
+f(cond ? "first" : "second");         // today
+f(cond ? "first"sv : "second"sv);     // under P3566
+```
+
+P3566R2's own migration data quantifies the scope. The Qt experiment reports that "all of Qt's runtime reflection APIs yield `const char*`, causing many warnings that one is unable to quickly address"<sup>[11]</sup>. The NVIDIA Omniverse migration required codebase-wide search and replace of `const char* x = "..."` declarations to `constexpr char x[] = "..."`<sup>[11]</sup>.
+
+The `char[N]` constructor adds a bounded path for literals. The `char const*` constructor is the only implicit path for runtime string sources - `std::exception::what()`, `std::getenv()`, `std::strerror()`, stored `c_str()` results, ternary expressions. Adding a path is not the same as closing one.
+
+## 8. Conclusion
+
+The standard library already provides constrained defaults with explicit broader counterparts. Production libraries independently converge on the same pattern for trusted boundaries. The same principle governs concurrency structure. The evidence documents a recurring design value: safe by default, with explicit escape hatches where zero-cost composition requires them.
 
 How explicit escape hatches interact with Hardening, Contracts, and Erroneous Behavior is a related question that deserves separate treatment.
 
@@ -193,7 +238,7 @@ How explicit escape hatches interact with Hardening, Contracts, and Erroneous Be
 
 # Acknowledgements
 
-The author thanks Jonathan Wakely, Jan Schultke, Pablo Halpern, and Nevin Liber for discussion and feedback on safe and unsafe construction paths. The author thanks Peter Bindels, Hana Dusikova, Jeremy Rifkin, Marco Foco, and Alexey Shevlyakov for their work on `cstring_view`.
+The author thanks Jonathan Wakely, Jan Schultke, Pablo Halpern, and Nevin Liber for discussion and feedback on safe and unsafe construction paths. The author thanks Peter Bindels, Hana Dusikova, Jeremy Rifkin, Marco Foco, and Alexey Shevlyakov for their work on `cstring_view`. The author thanks Giuseppe D'Angelo and Joshua Kriegshauser for the migration data cited in Section 7.
 
 ---
 
@@ -218,3 +263,5 @@ The author thanks Jonathan Wakely, Jan Schultke, Pablo Halpern, and Nevin Liber 
 [9] Capy, https://github.com/cppalliance/capy
 
 [10] P3655R3, "cstring_view," Peter Bindels, Hana Dusikova, Jeremy Rifkin, Marco Foco, Alexey Shevlyakov, https://wg21.link/p3655r3
+
+[11] P3566R2, "You shall not pass `char*`," Marco Foco, Joshua Kriegshauser, Alexey Shevlyakov, Giuseppe D'Angelo, https://wg21.link/p3566r2
