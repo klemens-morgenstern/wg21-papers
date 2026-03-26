@@ -19,7 +19,7 @@ We used C++20 coroutines directly for I/O - timers, sockets, DNS, TLS, HTTP - an
 
 ## Revision History
 
-### R1: March 2026 (pre-Croydon mailing)
+### R1: March 2026 (post-Croydon mailing)
 
 * Added "Why Standardize" subsection to Section 1: committee record,
   tower of abstraction argument, P4133 cost/benefit analysis.
