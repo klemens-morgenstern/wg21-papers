@@ -129,7 +129,7 @@ At the baseline, the price does not make coroutines slower. A [benchmark](https:
 
 You pay the price once. A coroutine that does fifty reads pays one frame allocation and fifty zero-cost resumptions. The frame that you cannot avoid is the same frame that holds the operation state, the local variables, and the result. The type erasure that blocks inlining is the same type erasure that gives you `any_stream`, `task<T>` with one parameter, and non-template operation states.
 
-The frame you cannot avoid is the frame that pays for everything in Section 6.
+The frame you cannot avoid is the frame that pays for everything in Section 7.
 
 ---
 
@@ -184,15 +184,29 @@ What stayed: `read_some` takes a buffer, returns `(error_code, size_t)`. The nam
 
 ---
 
-## 6. What The Frame Buys
+## 6. Why Did It Take Twenty Years?
+
+Networking stalled because networking is not the hard problem. Asynchrony is the hard problem, and asynchrony has three domains: bulk-parallel execution, heterogeneous work-graph composition, and serial stream I/O. C++ already standardized the first two. The parallel algorithms in C++17 serve the bulk-parallel domain through execution policies. `std::execution` in C++26 serves the work-graph and heterogeneous domain through sender/receiver composition. The serial I/O domain - networking, files, pipes, TLS - has no standard facility. [P0443](https://wg21.link/p0443r14)<sup>[23]</sup> spent fourteen revisions from 2016 to 2020 trying to unify all three domains into a single executor model, reconciling a work-executor suited to bulk dispatch with a continuation-executor suited to I/O chaining (the retrospective series [P4094R0](https://isocpp.org/files/papers/P4094R0.pdf)<sup>[24]</sup> through [P4099R0](https://isocpp.org/files/papers/P4099R0.pdf)<sup>[25]</sup> documents the full history). The unification imperative - the unexamined assumption that one model must cover all three domains - was the obstacle. The answer was three models, each serving its domain.
+
+The domains that attracted institutional investment shipped. Bulk-parallel execution had compiler vendors. Heterogeneous dispatch had GPU manufacturers. Networking had one independent author without institutional backing. This is how volunteer-based standardization works when some volunteers are funded and some are not. It is a structural observation, not a defect.
+
+C++20 coroutines did not exist when the networking debate was at its peak. The Networking TS was designed for a language without `co_await`. By the time compilers shipped coroutines and production codebases validated them, the committee had committed to `std::execution` as the universal async model. The window where coroutine-native I/O was both technically possible and the parallel domain was already resolved did not open until 2025. The coroutine-native approach could not have been proposed earlier because its prerequisites had not converged.
+
+Asio supports every async model - callbacks, futures, coroutines, and completion tokens. That universality served users but created a standardization obstacle: the I/O operations must be templates, the operation states must be parameterized on the completion handler type, and the stream model cannot be type-erased without per-operation allocation. The coroutine-native approach succeeds by committing to one completion mechanism and giving up the rest. Nobody could demonstrate what that commitment produces until someone made it. Section 7 is that demonstration.
+
+The committee has heard networking proposals before. It would be reasonable to ask why this attempt should succeed where others have not. The answer is structural. `std::execution` shipping in C++26 resolves the parallel and heterogeneous domain, which means the serial I/O domain can now be addressed without reopening the parallel question. The Network Endeavor ([P4100R0](https://wg21.link/p4100r0)<sup>[18]</sup>) is backed by a non-profit with engineering resources - not a solo effort by an independent author. Two libraries ship today ([Capy](https://github.com/cppalliance/capy)<sup>[7]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup>) with a Boost review scheduled. The team has implementation experience across the stream model - the author built Boost.Beast on Asio's architecture. Thirteen papers document the technical case, the retrospective record, and the bridge to `std::execution`. If coroutine I/O ships, C++ arrives at three async models - each serving its domain. P0443 tried to unify three into one. The answer, it turns out, was three.
+
+---
+
+## 7. What The Frame Buys
 
 Asio made a different set of trade-offs. It supports callbacks, futures, coroutines, and completion tokens. That flexibility serves every async model a user might want. But the flexibility has a cost: the I/O operations must be templates, the operation states must be parameterized on the completion handler type, and the stream model cannot be type-erased without per-operation allocation. These are not defects. They are consequences of supporting every completion model simultaneously.
 
 When you commit to coroutines as the only completion mechanism, you give up that flexibility. You cannot use callbacks. You cannot use futures. You cannot use completion tokens. That is a real cost. But the commitment unlocks optimizations and ergonomics that no other trade-off can deliver. The operation state becomes concrete. The stream becomes type-erasable. The library becomes separately compilable. The API becomes ABI-stable. None of these are possible when the completion mechanism is a template parameter.
 
-The frame allocation is the cost every design avoids. This design accepts it. What follows is that the frame - the one cost that cannot be eliminated - subsidizes everything the ecosystem has been waiting for. Each consequence in the chain that follows is possible only because the previous one holds. Remove any link and the rest collapse. The chain is not a list of independent benefits. It is a single argument, nine steps long, and it begins with the frame.
+The frame allocation is the cost every design avoids. This design accepts it. The frame the compiler already built is a type-erased storage location that the awaitable reuses at zero per-operation cost. A sender-based design can achieve the same downstream properties - type-erased operation states, pre-allocated storage, ABI-stable vtables - but pays a per-operation allocation because `connect(sender, receiver)` must heap-allocate the type-erased operation state each time the concrete type is unknown at compile time. The coroutine frame provides for free what the sender model must purchase per operation. Each consequence in the chain that follows is possible only because the previous one holds. Remove any link and the rest collapse. The chain is not a list of independent benefits. It is a single argument, nine steps long, and it begins with the frame.
 
-### 6.1 The Caller Is Erased
+### 7.1 The Caller Is Erased
 
 <table>
 <tr><th>Awaitable</th><th>Sender</th></tr>
@@ -216,7 +230,7 @@ struct read_operation
 </tr>
 </table>
 
-Same operation. Left: the caller is erased behind `coroutine_handle<>`. Right: the caller's type is stamped into the operation state as `Receiver`. The `<>` is the fork in the road. Everything in 6.2 through 6.9 follows from this difference.
+Same operation. Left: the caller is erased behind `coroutine_handle<>`. Right: the caller's type is stamped into the operation state as `Receiver`. The `<>` is the fork in the road. Everything in 7.2 through 7.9 follows from this difference.
 
 `std::function` erases a callable. `coroutine_handle<>` erases a resumable. One is a library convention. The other is a language primitive. Both hide the concrete type behind a fixed interface. The difference is that `std::function` must allocate its own storage. `coroutine_handle<>` points to a frame the compiler already built.
 
@@ -228,11 +242,11 @@ The cost is real. Because the handle is opaque, the compiler cannot optimize thr
 
 In the sender model, `connect(sender, receiver)` stamps the receiver's type into the operation state. The optimizer sees the full pipeline - it can inline across operation boundaries, eliminate dead code, and propagate constants through the entire chain. That is the strength for GPU pipelines (Section 3). The cost of that visibility is that the I/O operation's state depends on who is waiting for it. The same `async_read` connected to two different receivers produces two different operation state types.
 
-Two models. One trades optimization for erasure. The other trades erasure for optimization. The sender model's causal chain diverges here. The receiver-parameterized operation state gives the optimizer full pipeline visibility - the strength documented in Section 3. But the chain that follows in 6.2 through 6.9 requires a concrete operation state. The sender model cannot enter it.
+Two models. One trades optimization for erasure. The other trades erasure for optimization. The sender model's causal chain diverges here. The receiver-parameterized operation state gives the optimizer full pipeline visibility - the strength documented in Section 3. The chain that follows in 7.2 through 7.9 requires a concrete operation state. The sender model can achieve this by type-erasing the receiver, but each `connect` call must heap-allocate the operation state because the concrete type is unknown at compile time. The coroutine model achieves it at zero per-operation cost - the frame the compiler already built is the storage the awaitable reuses. One unnecessary allocation per operation is one unnecessary allocation per operation, regardless of what else is in the I/O path.
 
-From here forward, the paper walks the coroutine chain alone.
+From here forward, the paper walks the coroutine chain at zero per-operation cost. The sender model can follow the same chain at one allocation per operation. Section 8 documents the price.
 
-### 6.2 The Operation State Is Concrete
+### 7.2 The Operation State Is Concrete
 
 Windows (IOCP). [overlapped_op](https://github.com/cppalliance/corosio/blob/p4088r0/include/boost/corosio/native/detail/iocp/win_overlapped_op.hpp)<sup>[6]</sup> and [read_op](https://github.com/cppalliance/corosio/blob/p4088r0/include/boost/corosio/native/detail/iocp/win_socket.hpp)<sup>[6]</sup>:
 
@@ -268,7 +282,7 @@ struct epoll_write_op final
 
 Not templates. Not parameterized on the caller. Known at library-build time. The same `read_op` serves every coroutine that reads from the socket, regardless of the caller's type.
 
-### 6.3 The Operation State Lives in the Socket
+### 7.3 The Operation State Lives in the Socket
 
 [win_socket_internal](https://github.com/cppalliance/corosio/blob/p4088r0/include/boost/corosio/native/detail/iocp/win_socket.hpp)<sup>[6]</sup>:
 
@@ -285,7 +299,7 @@ class win_socket_internal
 
 Three operation states. Members of the socket. Pre-allocated when the socket is created. Not allocated per-operation. 10,000 sockets means 10,000 `read_op` instances of one known type, allocated once, reused for every read.
 
-### 6.4 Zero Per-Operation Allocation
+### 7.4 Zero Per-Operation Allocation
 
 [any_read_stream](https://github.com/cppalliance/capy/blob/p4088r0/include/boost/capy/io/any_read_stream.hpp)<sup>[7]</sup> type-erases any `ReadStream`. The erasure is on the awaitable, not the stream. The [vtable](https://github.com/cppalliance/capy/blob/p4088r0/include/boost/capy/io/any_read_stream.hpp)<sup>[7]</sup> dispatches `await_ready`, `await_suspend`, `await_resume` through function pointers:
 
@@ -320,7 +334,7 @@ The [benchmark](https://github.com/sgerbino/capy/tree/pr/beman-bench/bench/beman
 
 At the native level, both models are equivalent. Under type erasure, awaitables add +5 ns and zero allocations. Senders add +23 ns and one allocation per operation. The cost is structural: `await_suspend` takes a type-erased `coroutine_handle<>`, so the awaitable's size is known at construction time. `connect(receiver)` produces an operation state whose type depends on both the sender and the receiver. When either side is type-erased, the operation state must be heap-allocated per operation.
 
-### 6.5 Compile Once
+### 7.5 Compile Once
 
 Because `any_read_stream` has a fixed layout, a function accepting `any_read_stream&` goes in a `.cpp` file:
 
@@ -356,13 +370,13 @@ The header includes only [Capy](https://github.com/cppalliance/capy)<sup>[7]</su
 
 This is also the [Capy](https://github.com/cppalliance/capy)<sup>[7]</sup>/[Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup> split point. Capy delivers the abstract layer: `task<T>`, `any_read_stream`, `any_write_stream`, `any_stream`, buffer concepts, stream concepts, `when_all`, `when_any`, the frame allocator. Pure C++20. No platform dependency. Corosio delivers the platform layer: `tcp_socket`, `tls_stream`, timers, DNS, signals. Capy delivers value on its own - sans-I/O protocols, buffered streams, test mocks, all compile against Capy without Corosio. The architecture that made separate compilation possible is the same architecture that made the library split possible. One frame. Two libraries. Zero recompilation.
 
-### 6.6 Both Modes, One Abstraction
+### 7.6 Both Modes, One Abstraction
 
-`co_await` checks `await_ready()` first. If the awaitable returns `true`, no suspension happens - the coroutine continues synchronously. A memory buffer, a test mock, a zlib decompressor, a base64 decoder - they all satisfy `ReadStream` by returning immediately-ready awaitables. The same `dump` function from Section 6.5 works whether the stream suspends for kernel I/O or returns instantly from a buffer. The algorithm does not know the difference.
+`co_await` checks `await_ready()` first. If the awaitable returns `true`, no suspension happens - the coroutine continues synchronously. A memory buffer, a test mock, a zlib decompressor, a base64 decoder - they all satisfy `ReadStream` by returning immediately-ready awaitables. The same `dump` function from Section 7.5 works whether the stream suspends for kernel I/O or returns instantly from a buffer. The algorithm does not know the difference.
 
 A pipeline of `tcp_socket` -> `tls_stream` -> `decompression_stream` -> HTTP parser works regardless of which layers suspend. The synchronous layers pay zero suspension cost. No `is_async` flag. No separate sync API. One abstraction.
 
-### 6.7 Forty Years of ABI
+### 7.7 Forty Years of ABI
 
 The vtable layout of `any_read_stream` does not change. Libraries compiled today work with new transports tomorrow. A `tls_stream` implementation compiled against OpenSSL 3.0 satisfies `ReadStream`. A future implementation compiled against a post-quantum TLS library will satisfy the same concept, plug into the same `any_read_stream`, and work with every library that was compiled against the old transport. No recompilation. No relinking. The forty-year-old contract - `read_some` takes a buffer, returns `(error_code, size_t)` - is the ABI.
 
@@ -384,7 +398,7 @@ This is the POSIX `read()` contract with a C++ interface. Five change vectors ex
 
 The contract has survived POSIX, BSD sockets, IOCP, Asio, the Networking TS, io_uring, and every transport from TCP to QUIC.
 
-### 6.8 The User Chooses
+### 7.8 The User Chooses
 
 The user chooses the trade-off. [io_stream](https://github.com/cppalliance/corosio/blob/p4088r0/include/boost/corosio/io/io_stream.hpp)<sup>[6]</sup>, [tcp_socket](https://github.com/cppalliance/corosio/blob/p4088r0/include/boost/corosio/tcp_socket.hpp)<sup>[6]</sup>, [native_tcp_socket](https://github.com/cppalliance/corosio/blob/p4088r0/include/boost/corosio/native/native_tcp_socket.hpp)<sup>[6]</sup>:
 
@@ -404,7 +418,7 @@ native_tcp_socket<Backend>       // native   (Layer 1)
 
 The user does not choose once for the whole application. Different layers coexist. A library accepts `any_stream&` (abstract). An application creates `tcp_socket` (concrete). A benchmark uses `native_tcp_socket<epoll>` (native). All three interoperate through the inheritance chain. The user gets the best of everything - compilation firewall where they want insulation, zero overhead where they want performance.
 
-### 6.9 The Frame Subsidizes Everything
+### 7.9 The Frame Subsidizes Everything
 
 The coroutine frame paid for in Section 4 holds the local variables, the suspension point, and the result. `any_read_stream` works without per-operation allocation because the caller's frame already exists. The frame allocation you cannot avoid subsidizes the type erasure you want. This is the payoff for the price.
 
@@ -432,9 +446,9 @@ Additional properties that ride on the same frame:
 
 ---
 
-## 7. One Allocation Per Operation
+## 8. One Allocation Per Operation
 
-Senders can achieve type-erased I/O. They can get ABI stability. The benchmark in Section 6.4 documents the cost: one allocation per operation, +23 ns. One allocation per read. Completely reasonable.
+Senders can achieve type-erased I/O. They can get ABI stability. The benchmark in Section 7.4 documents the cost: one allocation per operation, +23 ns. One allocation per read. Completely reasonable.
 
 A custom allocator can pool the operation states. The pool must know each operation state's size at construction time - the size depends on both the sender and the receiver, so the pool is parameterized on the pipeline shape. The pool must be threaded through the API - the I/O object, the connect call, or the execution context must carry it. The pool must be managed per-connection - 10,000 connections means 10,000 pools, each sized for the operation states that connection's pipeline produces.
 
@@ -444,11 +458,11 @@ The coroutine model provides zero-allocation type erasure as a language conseque
 
 ---
 
-## 8. Anticipated Objections
+## 9. Anticipated Objections
 
 **Q: Why not type-erase senders with `any_sender`?**
 
-A: `any_sender` type-erases the sender, not the receiver. `connect(any_sender, receiver)` still stamps the receiver type into the operation state. The operation state remains a template. `any_sender` erases the sender's identity from the caller. The coroutine model erases the caller's identity from the I/O operation. Section 6.1 documents the distinction. Section 7 documents the cost.
+A: `any_sender` type-erases the sender, not the receiver. `connect(any_sender, receiver)` still stamps the receiver type into the operation state. The operation state remains a template. `any_sender` erases the sender's identity from the caller. The coroutine model erases the caller's identity from the I/O operation. Section 7.1 documents the distinction. Section 8 documents the cost.
 
 **Q: Does `std::execution::task` not already bridge both models?**
 
@@ -460,7 +474,7 @@ A: Coroutines are not a model to teach. They are the code the programmer already
 
 **Q: Coroutines were not designed for I/O.**
 
-A: Correct. The five properties were designed for generality - async patterns, lazy evaluation, generators. Section 6 documents what they produce when applied to I/O. The substrate is emergent.
+A: Correct. The five properties were designed for generality - async patterns, lazy evaluation, generators. Section 7 documents what they produce when applied to I/O. The substrate is emergent.
 
 **Q: The fragmentation argument is revisionist history.**
 
@@ -480,7 +494,7 @@ A: [P4003R1](https://wg21.link/p4003r1)<sup>[22]</sup> is two concepts, one exec
 
 ---
 
-## 9. The Design Fork
+## 10. The Design Fork
 
 Six objections to the coroutine-native model are well-known. We concede every one.
 
@@ -548,7 +562,7 @@ The two property sets are mutually exclusive consequences of the design fork. Th
 
 ---
 
-## 10. Conclusion
+## 11. Conclusion
 
 The committee designed five language mechanisms for generality. None was designed for I/O. Combined, they produce a substrate that resolves the problems that have kept networking out of the C++ standard since 2005: template explosion, compile-time cost, allocation control, and ABI instability. The causal chain runs from one frame allocation through concrete operation states, type-erased streams, separate compilation, and ABI stability to a three-layer architecture where the user chooses the trade-off.
 
@@ -607,3 +621,9 @@ The author thanks Chris Kohlhoff for Asio's stream model, buffer sequences, and 
 21. [P4014R1](https://wg21.link/p4014r1) - "The Sender Sub-Language" (Vinnie Falco, Mungo Gill, 2026). https://wg21.link/p4014r1
 
 22. [P4003R1](https://wg21.link/p4003r1) - "The Narrowest Execution Model for Networking" (Vinnie Falco, Steve Gerbino, Mungo Gill, 2026). https://wg21.link/p4003r1
+
+23. [P0443R14](https://wg21.link/p0443r14) - "A Unified Executors Proposal for C++" (Jared Hoberock, Michael Garland, Chris Kohlhoff, Chris Mysen, Carter Edwards, Gordon Brown, Michael Wong, 2020). https://wg21.link/p0443r14
+
+24. [P4094R0](https://isocpp.org/files/papers/P4094R0.pdf) - "Retrospective: The Unification of Executors and P0443" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4094R0.pdf
+
+25. [P4099R0](https://isocpp.org/files/papers/P4099R0.pdf) - "Twenty-One Years: The Arc of Networking in C++" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4099R0.pdf
