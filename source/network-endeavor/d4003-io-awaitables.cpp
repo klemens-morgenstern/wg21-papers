@@ -11,11 +11,13 @@
 #include <coroutine>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <memory_resource>
 #include <optional>
 #include <stop_token>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 
 #include <cstdio>
@@ -26,6 +28,13 @@ namespace capy {
 
 // ============================================================
 // execution_context (minimal for demo)
+//
+// The full execution_context (P4003R1 Section 4.4) provides
+// service management (use_service, make_service), frame
+// allocator accessors (get/set_frame_allocator), and ordered
+// shutdown. The ExecutionContext concept requires a nested
+// executor_type and get_executor(). This demo uses a minimal
+// stub; see Capy for the complete implementation.
 // ============================================================
 
 class execution_context
@@ -45,7 +54,7 @@ public:
 struct continuation
 {
     std::coroutine_handle<> h;
-    continuation* next_ = nullptr;
+    continuation* next = nullptr;
 };
 
 // ============================================================
@@ -83,6 +92,7 @@ struct executor_vtable
     void (*post)(void const*, continuation&);
     std::coroutine_handle<> (*dispatch)(void const*, continuation&);
     bool (*equals)(void const*, void const*) noexcept;
+    void const* (*type_id)() noexcept;
 };
 
 template<class Ex>
@@ -104,6 +114,9 @@ inline constexpr executor_vtable vtable_for = {
     },
     [](void const* a, void const* b) noexcept -> bool {
         return *static_cast<Ex const*>(a) == *static_cast<Ex const*>(b);
+    },
+    []() noexcept -> void const* {
+        return &typeid(Ex);
     },
 };
 
@@ -142,6 +155,27 @@ public:
         if (vt_ != other.vt_)
             return false;
         return vt_->equals(ex_, other.ex_);
+    }
+
+    template<class E>
+        requires (!std::same_as<std::decay_t<E>, executor_ref>)
+    E const* target() const noexcept
+    {
+        if(!ex_) return nullptr;
+        if(vt_->type_id() == &typeid(E))
+            return static_cast<E const*>(ex_);
+        return nullptr;
+    }
+
+    template<class E>
+        requires (!std::same_as<std::decay_t<E>, executor_ref>)
+    E* target() noexcept
+    {
+        if(!ex_) return nullptr;
+        if(vt_->type_id() == &typeid(E))
+            return const_cast<E*>(
+                static_cast<E const*>(ex_));
+        return nullptr;
     }
 };
 
@@ -258,14 +292,6 @@ class io_awaitable_promise_base
     io_env const* env_ = nullptr;
     mutable std::coroutine_handle<> cont_{std::noop_coroutine()};
 
-    static constexpr std::size_t ptr_alignment = alignof(void*);
-
-    static std::size_t
-    aligned_offset(std::size_t n) noexcept
-    {
-        return (n + ptr_alignment - 1) & ~(ptr_alignment - 1);
-    }
-
 public:
     static void*
     operator new(std::size_t size)
@@ -274,26 +300,18 @@ public:
         if(!mr)
             mr = std::pmr::new_delete_resource();
 
-        std::size_t ptr_offset = aligned_offset(size);
-        std::size_t total = ptr_offset + sizeof(std::pmr::memory_resource*);
+        auto total = size + sizeof(std::pmr::memory_resource*);
         void* raw = mr->allocate(total, alignof(std::max_align_t));
-
-        auto* ptr_loc = reinterpret_cast<std::pmr::memory_resource**>(
-            static_cast<char*>(raw) + ptr_offset);
-        *ptr_loc = mr;
-
+        std::memcpy(static_cast<char*>(raw) + size, &mr, sizeof(mr));
         return raw;
     }
 
     static void
-    operator delete(void* ptr, std::size_t size)
+    operator delete(void* ptr, std::size_t size) noexcept
     {
-        std::size_t ptr_offset = aligned_offset(size);
-        auto* ptr_loc = reinterpret_cast<std::pmr::memory_resource**>(
-            static_cast<char*>(ptr) + ptr_offset);
-        auto* mr = *ptr_loc;
-
-        std::size_t total = ptr_offset + sizeof(std::pmr::memory_resource*);
+        std::pmr::memory_resource* mr;
+        std::memcpy(&mr, static_cast<char*>(ptr) + size, sizeof(mr));
+        auto total = size + sizeof(std::pmr::memory_resource*);
         mr->deallocate(ptr, total, alignof(std::max_align_t));
     }
 
