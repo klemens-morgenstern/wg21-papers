@@ -133,8 +133,7 @@ public:
     executor_ref& operator=(executor_ref const&) = default;
 
     template<class Ex>
-        requires (!std::same_as<std::decay_t<Ex>, executor_ref>
-                  && Executor<Ex>)
+        requires (!std::same_as<std::decay_t<Ex>, executor_ref>)
     executor_ref(Ex const& ex) noexcept
         : ex_(&ex)
         , vt_(&detail::vtable_for<Ex>)
@@ -181,23 +180,6 @@ public:
 };
 
 // ============================================================
-// resume_via_post — safe stop-callback resumption
-// ============================================================
-
-struct resume_via_post
-{
-    executor_ref ex;
-    mutable continuation cont;
-
-    // noexcept: std::stop_callback requires a
-    // non-throwing invocable.
-    void operator()() const noexcept
-    {
-        ex.post(cont);
-    }
-};
-
-// ============================================================
 // io_env - execution environment
 // ============================================================
 
@@ -206,16 +188,7 @@ struct io_env
     executor_ref executor;
     std::stop_token stop_token;
     std::pmr::memory_resource* frame_allocator = nullptr;
-
-    resume_via_post
-    post_resume(std::coroutine_handle<> h) const noexcept
-    {
-        return resume_via_post{executor, continuation{h}};
-    }
 };
-
-using stop_resume_callback =
-    std::stop_callback<resume_via_post>;
 
 // ============================================================
 // this_coro tags
@@ -325,7 +298,7 @@ public:
     {
         auto* mr = get_current_frame_allocator();
         if(!mr)
-            mr = std::pmr::get_default_resource();
+            mr = std::pmr::new_delete_resource();
 
         auto total = size + sizeof(std::pmr::memory_resource*);
         void* raw = mr->allocate(total, alignof(std::max_align_t));
@@ -365,7 +338,6 @@ public:
 
     io_env const* environment() const noexcept
     {
-        assert(env_ != nullptr);
         return env_;
     }
 
@@ -462,21 +434,9 @@ struct [[nodiscard]] task
         : io_awaitable_promise_base<promise_type>
         , detail::task_return_base<T>
     {
-        union { std::exception_ptr ep_; };
-        bool has_ep_ = false;
+        std::exception_ptr ep_;
 
-        promise_type() noexcept {}
-
-        ~promise_type()
-        {
-            if(has_ep_)
-                ep_.~exception_ptr();
-        }
-
-        std::exception_ptr exception() const noexcept
-        {
-            return has_ep_ ? ep_ : std::exception_ptr{};
-        }
+        std::exception_ptr exception() const noexcept { return ep_; }
 
         task get_return_object()
         {
@@ -521,10 +481,9 @@ struct [[nodiscard]] task
             return awaiter{this};
         }
 
-        void unhandled_exception() noexcept
+        void unhandled_exception()
         {
-            new (&ep_) std::exception_ptr(std::current_exception());
-            has_ep_ = true;
+            ep_ = std::current_exception();
         }
 
         template<class Awaitable>
@@ -576,8 +535,8 @@ struct [[nodiscard]] task
 
     auto await_resume()
     {
-        if(auto ep = h_.promise().exception())
-            std::rethrow_exception(ep);
+        if(h_.promise().ep_)
+            std::rethrow_exception(h_.promise().ep_);
         if constexpr (! std::is_void_v<T>)
             return std::move(*h_.promise().result_);
         else
@@ -711,36 +670,6 @@ struct immediate_value
 
 static_assert(IoAwaitable<immediate_value>);
 
-// An IoAwaitable that suspends until stop is requested.
-// Uses stop_resume_callback to resume through the executor
-// rather than inline on the requesting thread.
-struct stop_awaitable
-{
-    bool await_ready() const noexcept { return false; }
-
-    std::coroutine_handle<> await_suspend(
-        std::coroutine_handle<> h, io_env const* env)
-    {
-        if (env->stop_token.stop_requested())
-            return h;
-        // Async path: register a stop callback that
-        // posts the resumption through the executor:
-        //
-        //   stop_resume_callback cb(
-        //       env->stop_token, env->post_resume(h));
-        //   return std::noop_coroutine();
-        //
-        // The callback must outlive the suspension, so
-        // real I/O awaitables store it in the operation
-        // state. This demo only exercises the fast path.
-        return std::noop_coroutine();
-    }
-
-    void await_resume() noexcept {}
-};
-
-static_assert(IoAwaitable<stop_awaitable>);
-
 // Child task: receives context from parent
 task<int> compute(int x)
 {
@@ -777,18 +706,6 @@ task<> void_task()
     co_return;
 }
 
-// Demonstrates stop_resume_callback. With the inline executor
-// this exercises the early-return fast path (stop already
-// requested). The callback path through post_resume requires
-// a multi-threaded executor where post() enqueues rather than
-// resuming inline.
-task<> stop_demo()
-{
-    std::printf("stop_demo: waiting for stop...\n");
-    co_await stop_awaitable{};
-    std::printf("stop_demo: resumed via post_resume\n");
-}
-
 int main()
 {
     inline_context ctx;
@@ -805,11 +722,6 @@ int main()
     std::printf("--- Running void_task with stop requested ---\n");
     source.request_stop();
     run_sync(ex, source.get_token(), void_task());
-
-    std::printf("--- Running stop_demo ---\n");
-    std::stop_source src2;
-    src2.request_stop();
-    run_sync(ex, src2.get_token(), stop_demo());
 
     std::printf("\nAll concept checks passed. Protocol works.\n");
     return 0;

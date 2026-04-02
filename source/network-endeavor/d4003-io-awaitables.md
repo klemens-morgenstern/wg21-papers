@@ -204,47 +204,16 @@ What follows is the minimum as well.
 
 ### 4.1 `io_env`
 
-The `io_env` struct contains the three members from Section 3 - executor, stop token, and frame allocator - and the machinery for safe resumption from stop callbacks:
+The `io_env` struct contains three members that a coroutine needs for I/O: the executor, the stop token, and the frame allocator:
 
 ```cpp
-struct resume_via_post
-{
-    executor_ref ex;
-    mutable continuation cont;
-
-    void operator()() const noexcept
-    {
-        ex.post(cont);
-    }
-};
-
 struct io_env
 {
     executor_ref executor;
     std::stop_token stop_token;
     std::pmr::memory_resource* frame_allocator = nullptr;
-
-    resume_via_post
-    post_resume(
-        std::coroutine_handle<> h) const noexcept
-    {
-        return resume_via_post{
-            executor, continuation{h}};
-    }
 };
-
-using stop_resume_callback =
-    std::stop_callback<resume_via_post>;
 ```
-
-`std::stop_callback` invokes its callable on the thread that calls `request_stop()`. Resuming a coroutine inline on that thread bypasses the executor and corrupts the thread-local frame allocator. `resume_via_post` posts the resumption through the executor instead. An awaitable registers a stop callback during suspension:
-
-```cpp
-stop_cb_.emplace(
-    env->stop_token, env->post_resume(h));
-```
-
-When stop is requested, the coroutine resumes on the executor's thread, not on the requester's.
 
 ### 4.2 _IoAwaitable_
 
@@ -300,23 +269,17 @@ class executor_ref
     detail::executor_vtable const* vt_ = nullptr;
 
 public:
-    template<class E>
-        requires (!std::same_as<
-            std::decay_t<E>, executor_ref>
-            && Executor<E>)
+    template<Executor E>
     executor_ref(E const& e) noexcept
         : ex_(&e), vt_(&detail::vtable_for<E>) {}
 
     std::coroutine_handle<> dispatch(continuation& c) const;
     void post(continuation& c) const;
     execution_context& context() const noexcept;
-
-    template<Executor E>
-    E const* target() const noexcept;
 };
 ```
 
-The `continuation` struct pairs a `coroutine_handle<>` with an intrusive `next` pointer, allowing executors to queue continuations without allocating a separate node - eliminating the last steady-state allocation in the hot path. `dispatch` returns a `coroutine_handle<>` for symmetric transfer: if the caller is already in the executor's context, it returns `c.h` directly for zero-overhead resumption. Otherwise it queues and returns `noop_coroutine()`. `post` always defers. `target<E>()` recovers the concrete executor, returning `nullptr` on type mismatch. The `executor_ref` type-erases any _Executor_ as two pointers - one indirection (~1-2 nanoseconds<sup>[16]</sup>) is negligible for I/O operations at 10,000+ nanoseconds. See [P4172R0](https://wg21.link/p4172r0)<sup>[1]</sup> for detailed semantics.
+The `continuation` struct pairs a `coroutine_handle<>` with an intrusive `next` pointer, allowing executors to queue continuations without allocating a separate node - eliminating the last steady-state allocation in the hot path. `dispatch` returns a `coroutine_handle<>` for symmetric transfer: if the caller is already in the executor's context, it returns `c.h` directly for zero-overhead resumption. Otherwise it queues and returns `noop_coroutine()`. `post` always defers. The `executor_ref` type-erases any _Executor_ as two pointers - one indirection (~1-2 nanoseconds<sup>[16]</sup>) is negligible for I/O operations at 10,000+ nanoseconds. See [P4172R0](https://wg21.link/p4172r0)<sup>[1]</sup> for detailed semantics.
 
 ### 4.4 `execution_context`
 
@@ -342,10 +305,6 @@ public:
     template<class T> T& use_service();
     template<class T, class... Args>
         T& make_service( Args&&... args );
-    template<class T>
-        T* find_service() const noexcept;
-    template<class T>
-        bool has_service() const noexcept;
 
     std::pmr::memory_resource*
         get_frame_allocator() const noexcept;
