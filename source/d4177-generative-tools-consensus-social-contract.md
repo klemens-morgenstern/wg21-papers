@@ -1,6 +1,6 @@
 ---
 title: "Info: Generative Tools and the Social Contract of Consensus Standards"
-document: D0000R0
+document: P4177R0
 date: 2026-04-02
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
