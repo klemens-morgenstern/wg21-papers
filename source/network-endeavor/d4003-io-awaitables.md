@@ -406,6 +406,7 @@ See [P4172R0](https://wg21.link/p4172r0)<sup>[1]</sup> for detailed examples and
 - RAII works inside coroutines. Deterministic destruction is guaranteed.
 - Cancellation propagates forward. Destruction propagates backward. Both are automatic.
 - For byte I/O, the language provides what a library would reimplement.
+- The synchronous entry point requires an escape hatch in every async framework. Senders call theirs `sync_wait`.
 
 - `when_all` and `when_any` in [Capy](https://github.com/cppalliance/capy)<sup>[2]</sup> (`include/boost/capy/when_all.hpp`, `when_any.hpp`)
 
