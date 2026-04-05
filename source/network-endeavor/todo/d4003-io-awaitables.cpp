@@ -209,7 +209,7 @@ inline constexpr frame_allocator_tag frame_allocator{};
 } // namespace this_coro
 
 // ============================================================
-// get/set_current_frame_allocator (thread-local)
+// get/set_cached_frame_allocator (thread-local)
 // ============================================================
 
 namespace detail {
@@ -221,13 +221,13 @@ inline std::pmr::memory_resource*& tls_frame_allocator() noexcept
 } // namespace detail
 
 inline std::pmr::memory_resource*
-get_current_frame_allocator() noexcept
+get_cached_frame_allocator() noexcept
 {
     return detail::tls_frame_allocator();
 }
 
 inline void
-set_current_frame_allocator(std::pmr::memory_resource* mr) noexcept
+set_cached_frame_allocator(std::pmr::memory_resource* mr) noexcept
 {
     detail::tls_frame_allocator() = mr;
 }
@@ -239,9 +239,9 @@ set_current_frame_allocator(std::pmr::memory_resource* mr) noexcept
 inline void
 safe_resume(std::coroutine_handle<> h) noexcept
 {
-    auto* saved = get_current_frame_allocator();
+    auto* saved = get_cached_frame_allocator();
     h.resume();
-    set_current_frame_allocator(saved);
+    set_cached_frame_allocator(saved);
 }
 
 // ============================================================
@@ -296,7 +296,7 @@ public:
     static void*
     operator new(std::size_t size)
     {
-        auto* mr = get_current_frame_allocator();
+        auto* mr = get_cached_frame_allocator();
         if(!mr)
             mr = std::pmr::new_delete_resource();
 
@@ -457,7 +457,7 @@ struct [[nodiscard]] task
 
                 void await_resume() const noexcept
                 {
-                    set_current_frame_allocator(p_->environment()->frame_allocator);
+                    set_cached_frame_allocator(p_->environment()->frame_allocator);
                 }
             };
             return awaiter{this};
@@ -496,7 +496,7 @@ struct [[nodiscard]] task
 
             decltype(auto) await_resume()
             {
-                set_current_frame_allocator(p_->environment()->frame_allocator);
+                set_cached_frame_allocator(p_->environment()->frame_allocator);
                 return a_.await_resume();
             }
 

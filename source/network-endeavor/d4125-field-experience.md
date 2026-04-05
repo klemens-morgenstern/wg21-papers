@@ -1,7 +1,7 @@
 ---
 title: "Report: Coroutine-Native I/O at a Derivatives Exchange"
-document: P4125R1
-date: 2026-04-06
+document: P4125R0
+date: 2026-03-17
 reply-to:
   - "Mungo Gill <mungo.gill@me.com>"
   - "C++ Alliance Proposal Team"
@@ -18,11 +18,6 @@ The paper reports qualitative findings from three structured interviews with the
 
 ## Revision History
 
-### R1: April 2026
-
-- Added third engineer interview (Engineer C)
-- Expanded build experience, timer migration, and documentation findings
-
 ### R0: March 2026
 
 - Initial version. Early-stage qualitative findings only.
@@ -37,9 +32,7 @@ This paper is part of the Network Endeavor, a project to bring coroutine-native 
 
 The author developed and maintains [Capy](https://github.com/cppalliance/capy)<sup>[1]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[2]</sup> and believes coroutine-native I/O is the correct foundation for networking in C++.
 
-Coroutine-native I/O and `std::execution` address different domains and should coexist in the C++ standard.
-
-The author is affiliated with the C++ Alliance, which develops the libraries under test. The integration partner is an independent commercial entity. This paper documents findings. It does not propose changes, request committee time, or advocate for a position. The evidence is early-stage and the authors acknowledge its limitations explicitly in Section 8.
+The author is affiliated with the C++ Alliance, which develops the libraries under test. The integration partner is an independent commercial entity. The evidence is early-stage and the authors acknowledge its limitations explicitly in Section 7.
 
 This paper asks for nothing.
 
@@ -189,39 +182,15 @@ When asked what he would warn another team considering the port:
 
 Engineers B and C both noted caveats for teams with deeply entrenched Asio codebases - particularly those with complex multi-threading and multiple thread pools, where the migration would be substantially harder. The time investment required for a complete port should not be underestimated.
 
+Engineer A also noted the library's accessibility:
+
+> "This library is probably something a new user could turn to and use pretty much directly." - Engineer A
+
 These assessments are based on two to three weeks of integration work covering a subset of the platform. No performance benchmarks have been completed. These are early indicators, not final verdicts.
 
 ---
 
-## 7. Observations
-
-The following observations connect the field findings to topics under discussion in the committee. They are stated as observations, not recommendations.
-
-### 7.1 Error Return Paths
-
-[P4007R1](https://isocpp.org/files/papers/P4007R1.pdf)<sup>[4]</sup> identifies error return as a "not fixable post-ship" gap in `std::execution::task`. The integration partner's experience illustrates the practical dimension of this question: production financial markets infrastructure requires consistent `error_code` paths. The partner does not use exceptions in production code. When Corosio's `socket.set_option()` threw where Asio provides an `error_code` overload, it was their primary API complaint.
-
-How errors flow through coroutine pipelines is not an abstract design question. It has immediate consequences for adoption in domains where exception-free code is a requirement.
-
-### 7.2 Coroutine-Native I/O in Practice
-
-[P4003R0](https://wg21.link/p4003r0)<sup>[3]</sup> proposes that C++20 coroutines are suited to I/O, and [P4014R0](https://wg21.link/p4014r0)<sup>[5]</sup> argues that coroutines (direct style) are a natural complement to senders (continuation-passing style). The integration described in this paper provides early qualitative evidence bearing on these claims.
-
-A derivatives exchange platform with a large, predominantly C++ codebase and a majority callback-based architecture is porting to a coroutine-native library. After two to three weeks of work, three engineers independently found the migration less disruptive than anticipated. Two endorsed the coroutine-only design philosophy; the third found it intuitive but reserved judgement on its fit with existing applications. These are preliminary impressions, not validated production results.
-
-[P4007R1](https://isocpp.org/files/papers/P4007R1.pdf)<sup>[4]</sup> notes that zero open-source sender-based networking stacks exist, while six coroutine-based stacks are in production use. This integration adds a seventh data point.
-
-### 7.3 Accessibility
-
-[P4014R0](https://wg21.link/p4014r0)<sup>[5]</sup> argues that the sender model constitutes a "sub-language" with its own control flow, variable binding, and error handling - creating a learning burden distinct from standard C++. All three engineers in this study found a coroutine-native API at least as accessible as Asio's callback model. Engineer A observed:
-
-> "This library is probably something a new user could turn to and use pretty much directly." - Engineer A
-
-Engineer C had no prior production experience with C++ coroutines and found the documentation sufficient to become productive. His introductory exposure was limited to a single ACCU conference talk on C++20 several years earlier.
-
----
-
-## 8. Limitations of This Study
+## 7. Limitations of This Study
 
 This paper reports early-stage, qualitative findings. The following limitations apply:
 
@@ -253,7 +222,3 @@ Thanks to Vinnie Falco for developing Capy and Corosio and for supporting this e
 2. [Corosio](https://github.com/cppalliance/corosio) - Coroutine-native networking library. https://github.com/cppalliance/corosio
 
 3. [P4003R0](https://wg21.link/p4003r0) - "Coroutines for I/O" (Vinnie Falco, 2026). https://wg21.link/p4003r0
-
-4. [P4007R1](https://isocpp.org/files/papers/P4007R1.pdf) - "Open Issues in std::execution::task" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4007R1.pdf
-
-5. [P4014R0](https://wg21.link/p4014r0) - "The Sender Sub-Language" (Vinnie Falco, Mungo Gill, 2026). https://wg21.link/p4014r0

@@ -13,9 +13,9 @@ audience: LEWG
 
 This paper documents the design rationale for the _IoAwaitable_ protocol.
 
-[P4003R1](https://wg21.link/p4003r1) proposes the normative vocabulary (_IoAwaitable_, launch functions, executor shape). This paper is the companion record: why each facility exists, what alternatives were considered, how each choice was forced by the constraints of the domain, and where the historical evidence lives. Section 3 defines three audiences and their expected skill levels. Sections 4-7 present each protocol facility grouped by audience with expanded design rationale. Section 8 addresses frame allocator propagation. Section 9 demonstrates the ergonomic payoff. Sections 10-11 cover coexistence with `std::execution` and evidence. Appendix A provides async I/O background for committee members unfamiliar with the domain.
+[P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> proposes the normative vocabulary (_IoAwaitable_, launch functions, executor shape). This paper is the companion record: why each facility exists, what alternatives were considered, how each choice was forced by the constraints of the domain, and where the historical evidence lives. Section 3 defines three audiences and their expected skill levels. Sections 4-7 present each protocol facility grouped by audience with expanded design rationale. Section 8 addresses frame allocator propagation. Section 9 demonstrates the ergonomic payoff. Sections 10-11 cover complementary use with `std::execution` and evidence. Appendix A provides async I/O background for committee members unfamiliar with the domain.
 
-Read [P4003R1](https://wg21.link/p4003r1) first for specification text; read this paper when you need the design audit trail.
+Read [P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> first for specification text; read this paper when you need the design audit trail.
 
 ---
 
@@ -31,11 +31,11 @@ Read [P4003R1](https://wg21.link/p4003r1) first for specification text; read thi
 
 The author provides information and serves at the pleasure of the committee.
 
-This paper is part of the [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)<sup>[15]</sup>), a project to bring coroutine-native byte-oriented I/O to C++.
+This paper is part of the [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)<sup>[14]</sup>), a project to bring coroutine-native byte-oriented I/O to C++.
 
 Falco and Gerbino developed and maintain [Capy](https://github.com/cppalliance/capy)<sup>[5]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup> and believe coroutine-native I/O is the correct foundation for networking in C++.
 
-Coroutine-native I/O and `std::execution` address different domains and should coexist in the C++ standard.
+Coroutine-native I/O and `std::execution` are complementary. Each serves the domain where its design choices pay off.
 
 This paper asks for nothing.
 
@@ -43,15 +43,15 @@ This paper asks for nothing.
 
 ## 2. Why Standardize
 
-The [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)<sup>[15]</sup>) is a sequence of papers toward coroutine-native byte-oriented I/O in C++. [P4003R1](https://wg21.link/p4003r1) is the first increment that lands **normative vocabulary** in a proposal: _IoAwaitable_, _IoRunnable_, launch functions, `io_env`, type-erased _Executor_, and `execution_context`-shaped hosting. It is not a sockets, TLS, DNS, or buffer-sequence standard. Higher layers still need shared buffer and reactor choices; the standard does not promise them in the same breath. What it does promise is a **narrow waist**: agreement on how coroutine tasks start, suspend with environment in hand, cancel, and allocate frames so that libraries above the hook can interoperate.
+The [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)<sup>[14]</sup>) is a sequence of papers toward coroutine-native byte-oriented I/O in C++. [P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> is the first increment that lands **normative vocabulary** in a proposal: _IoAwaitable_, _IoRunnable_, launch functions, `io_env`, type-erased _Executor_, and `execution_context`-shaped hosting. It is not a sockets, TLS, DNS, or buffer-sequence standard. Higher layers still need shared buffer and reactor choices; the standard does not promise them in the same breath. What it does promise is a **narrow waist**: agreement on how coroutine tasks start, suspend with environment in hand, cancel, and allocate frames so that libraries above the hook can interoperate.
 
-Without that waist, every stack reinvents incompatible task types and environments; an HTTP layer on one model does not compose with storage or RPC on another. A small vocabulary is easier to ship and to revise than a monolithic networking API, and wrong vocabulary ossifies (allocator parameters threaded with `allocator_arg_t` through every public coroutine are difficult to undo once they ship; Section 8.1 demonstrates the signature pressure). The design in [P4003R1](https://wg21.link/p4003r1) favors out-of-band delivery of a frame `memory_resource` into `operator new` so application coroutines stay clean; Section 8.2 records the implementation choices and Section 8.4 records when other propagation shapes are appropriate.
+Without that waist, every stack reinvents incompatible task types and environments; an HTTP layer on one model does not compose with storage or RPC on another. A small vocabulary is easier to ship and to revise than a monolithic networking API, and wrong vocabulary ossifies (allocator parameters threaded with `allocator_arg_t` through every public coroutine are difficult to undo once they ship; Section 8.1 demonstrates the signature pressure). The design in [P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> favors out-of-band delivery of a frame `memory_resource` into `operator new` so application coroutines stay clean; Section 8.2 records the implementation choices and Section 8.4 records when other propagation shapes are appropriate.
 
-**Performance** matters at that hook: [P4003R1](https://wg21.link/p4003r1) reports recycling frame allocators well ahead of `std::allocator` and ahead of mimalloc for microbenchmarks on the paper's workloads. The point is not a benchmark contest; it is that the standard should not force a slow default at the frame boundary.
+**Performance** matters at that hook: [P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> reports recycling frame allocators well ahead of `std::allocator` and ahead of mimalloc for microbenchmarks on the paper's workloads. The point is not a benchmark contest; it is that the standard should not force a slow default at the frame boundary.
 
 The alternative of leaving coroutine I/O vocabulary to the ecosystem was considered. [Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html)<sup>[3]</sup> has been available for over twenty years. In that time, the C++ ecosystem has not produced a shared task type or environment protocol for async I/O. Each networking library builds on a different async model, so they cannot compose. The higher layers of the abstraction tower - HTTP frameworks, database drivers, RPC stacks that interoperate - have not emerged because the foundation is not shared. Twenty years of observed ecosystem behavior is sufficient to record that a shared vocabulary requires standardization.
 
-Historic **whether-and-how** questions for committee networking priorities appear in [P0592R5](https://wg21.link/p0592r5)<sup>[9]</sup>, the 2021 LEWG polls [P2452R0](https://wg21.link/p2452r0)<sup>[10]</sup> / [P2453R0](https://wg21.link/p2453r0)<sup>[11]</sup>, and later SG4 and TAPS-oriented papers such as [P3185R0](https://wg21.link/p3185r0)<sup>[13]</sup> and [P3482R0](https://wg21.link/p3482r0)<sup>[14]</sup>. The historical arc from [N1925](https://wg21.link/n1925) through the Networking TS through executor unification through [P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup> is traced in [P4099R0](https://wg21.link/p4099r0)<sup>[27]</sup>.
+Historic **whether-and-how** questions for committee networking priorities appear in [P0592R5](https://wg21.link/p0592r5)<sup>[8]</sup>, the 2021 LEWG polls [P2452R0](https://wg21.link/p2452r0)<sup>[9]</sup> / [P2453R0](https://wg21.link/p2453r0)<sup>[10]</sup>, and later SG4 and TAPS-oriented papers such as [P3185R0](https://wg21.link/p3185r0)<sup>[12]</sup> and [P3482R0](https://wg21.link/p3482r0)<sup>[13]</sup>. The historical arc from [N1925](https://wg21.link/n1925)<sup>[40]</sup> through the Networking TS through executor unification through [P2300R10](https://wg21.link/p2300r10)<sup>[7]</sup> is traced in [P4099R0](https://wg21.link/p4099r0)<sup>[25]</sup>.
 
 ---
 
@@ -92,7 +92,7 @@ A small population of experts. They implement task types (`task<T>`, `route_task
 
 They write this code once per project. Many application developers consume it.
 
-*Why multiple task types exist:* Different return policies (void vs value vs tuple), different cancellation behavior (ignore vs propagate vs transform), generators vs one-shot tasks, domain-specific error handling, custom `await_transform` for logging or instrumentation. [P4089R0](https://wg21.link/p4089r0)<sup>[28]</sup> documents how the Environment parameter in `std::execution::task<T, E>` creates cross-library interoperability problems when different libraries define different environments. The _IoAwaitable_ approach - one template parameter, environment propagated through `io_env` - avoids this structural barrier.
+*Why multiple task types exist:* Different return policies (void vs value vs tuple), different cancellation behavior (ignore vs propagate vs transform), generators vs one-shot tasks, domain-specific error handling, custom `await_transform` for logging or instrumentation. [P4089R0](https://wg21.link/p4089r0)<sup>[26]</sup> documents how the Environment parameter in `std::execution::task<T, E>` creates cross-library interoperability problems when different libraries define different environments. The _IoAwaitable_ approach - one template parameter, environment propagated through `io_env` - avoids this structural barrier.
 
 *Design constraint:* Complexity is acceptable here because the code is written once and consumed by many. But it must be tractable complexity - the `io_awaitable_promise_base` mixin (Appendix C) reduces the surface to policy decisions, not full protocol reimplementation.
 
@@ -179,7 +179,7 @@ concept IoAwaitable =
 
 The two-argument `await_suspend` is the protocol boundary. The caller's `await_transform` injects the environment as a pointer parameter. A non-compliant awaitable produces a compile-time failure when a compliant coroutine's `await_transform` calls the two-argument form.
 
-*Why not template on the promise type.* The standard C++20 pattern is `await_suspend(coroutine_handle<Promise>)`, where the awaitable sees the concrete promise type. This compiles silently when promise and awaitable are mismatched - a coroutine from one async model can `co_await` an awaitable from another, producing runtime errors instead of compile-time failures. The two-argument signature with `io_env const*` ensures that a coroutine from a different model (one whose `await_transform` does not inject `io_env`) fails to compile. Both sides of every suspension point are statically verified. [P4094R0](https://wg21.link/p4094r0)<sup>[22]</sup> Section 6 examines how rationale loss across paper boundaries contributed to the framing confusion between work and continuation semantics; a compile-time boundary prevents analogous confusion at the awaitable level.
+*Why not template on the promise type.* The standard C++20 pattern is `await_suspend(coroutine_handle<Promise>)`, where the awaitable sees the concrete promise type. This compiles silently when promise and awaitable are mismatched - a coroutine from one async model can `co_await` an awaitable from another, producing runtime errors instead of compile-time failures. The two-argument signature with `io_env const*` ensures that a coroutine from a different model (one whose `await_transform` does not inject `io_env`) fails to compile. Both sides of every suspension point are statically verified. [P4094R0](https://wg21.link/p4094r0)<sup>[20]</sup> Section 6 examines how rationale loss across paper boundaries contributed to the framing confusion between work and continuation semantics; a compile-time boundary prevents analogous confusion at the awaitable level.
 
 *Trade-off:* The signature is non-standard; existing awaitables must be adapted. *Revisit if:* the language gains a mechanism for statically verifying awaitable-promise compatibility without a custom `await_suspend` signature.
 
@@ -198,9 +198,9 @@ void post(continuation& c) const;
 
 *Why two operations, not one.* `dispatch` runs the continuation inline when the caller is already in the executor's context. This is the common case after an I/O completion: the reactor thread detects the completion and dispatches the waiting coroutine with zero overhead via symmetric transfer. `post` always defers. The distinction matters for correctness: dispatching while holding a lock can deadlock if the continuation tries to acquire the same lock. `post` guarantees the continuation runs after the current function returns.
 
-*Why `dispatch` returns `coroutine_handle<>`.* Symmetric transfer avoids stack buildup. Without it, a chain of N coroutines grows the call stack by N frames. [P2583](https://wg21.link/p2583)<sup>[29]</sup> provides the full analysis. `dispatch` returns `c.h` directly when inline execution is safe, or `noop_coroutine()` when it queues. The caller performs `return dispatch(c)` in its own `await_suspend`, and the compiler optimizes the tail call.
+*Why `dispatch` returns `coroutine_handle<>`.* Symmetric transfer avoids stack buildup. Without it, a chain of N coroutines grows the call stack by N frames. [P2583R3](https://wg21.link/p2583r3)<sup>[27]</sup> provides the full analysis. `dispatch` returns `c.h` directly when inline execution is safe, or `noop_coroutine()` when it queues. The caller performs `return dispatch(c)` in its own `await_suspend`, and the compiler optimizes the tail call.
 
-*Each concept requirement is load-bearing.* [P0443](https://wg21.link/p0443r14)<sup>[16]</sup> unified three executor models across 14 revisions; the unified design was never deployed. [P1738R0](https://wg21.link/p1738r0)<sup>[17]</sup> diagnosed the concept hierarchy as hostile to generic programming. [P1791R0](https://wg21.link/p1791r0)<sup>[19]</sup> recorded Rapperswil feedback: "these requirements are not universal." The _IoAwaitable_ executor concept has seven requirements. Removing any one produces a concrete failure:
+*Each concept requirement is load-bearing.* [P0443](https://wg21.link/p0443r14)<sup>[15]</sup> unified three executor models across 14 revisions; the unified design was never deployed. [P1738R0](https://wg21.link/p1738r0)<sup>[16]</sup> diagnosed the concept hierarchy as hostile to generic programming. [P1791R0](https://wg21.link/p1791r0)<sup>[17]</sup> recorded Rapperswil feedback that P0443 had too many concepts; its own analysis concluded that domain-specific requirements "are not universal" and should not be imposed on all executor types. The _IoAwaitable_ executor concept has seven requirements. Removing any one produces a concrete failure:
 
 - Nothrow copy/move: exception safety at suspension points
 - `context()`: launch functions discover the default frame allocator
@@ -233,9 +233,9 @@ launch site -> handler -> sub-operation -> I/O object
 
 The I/O object cancels the pending operation through the platform primitive: `CancelIoEx` on Windows, `IORING_OP_ASYNC_CANCEL` on Linux, `close()` on POSIX. The operation completes with an error and the coroutine chain unwinds normally.
 
-*Why cooperative cancellation.* No operation is forcibly terminated. The I/O layer requests cancellation, the OS acknowledges it, and the operation completes with an error code. Resource cleanup is predictable. The coroutine always resumes - it handles cancellation via its normal error path. This differs from the sender model where `set_stopped` may cause `co_await` to never resume ([P4096R0](https://wg21.link/p4096r0)<sup>[24]</sup> Section 3-4).
+*Why cooperative cancellation.* No operation is forcibly terminated. The I/O layer requests cancellation, the OS acknowledges it, and the operation completes with an error code. Resource cleanup is predictable. The coroutine always resumes - it handles cancellation via its normal error path. This differs from the sender model where `set_stopped` may cause `co_await` to never resume ([P4096R0](https://wg21.link/p4096r0)<sup>[22]</sup> Section 3-4).
 
-*Historical context.* [P2175R0](https://wg21.link/p2175r0)<sup>[33]</sup> extended `std::stop_token` for sender/receiver with `stoppable_token` and receiver-based context propagation. [P3409R0](https://wg21.link/p3409r0)<sup>[34]</sup> found that allowing arbitrary stop-callback registration leads to intrusive lists and synchronization overhead (spin-mutex), motivating more constrained token shapes. The _IoAwaitable_ model uses `std::stop_token` directly with bounded, forward-only propagation, avoiding this cost.
+*Historical context.* [P2175R0](https://wg21.link/p2175r0)<sup>[31]</sup> extended `std::stop_token` for sender/receiver with `stoppable_token` and receiver-based context propagation. [P3409R0](https://wg21.link/p3409r0)<sup>[32]</sup> found that allowing arbitrary stop-callback registration leads to intrusive lists and synchronization overhead (spin-mutex), motivating more constrained token shapes. The _IoAwaitable_ model uses `std::stop_token` directly with bounded, forward-only propagation, avoiding this cost.
 
 ### 5.5 `execution_context`
 
@@ -266,7 +266,7 @@ protected:
 
 *Why base class, not concept.* Services provide singletons with ordered shutdown. `shutdown()` walks services in reverse order of registration, preventing use-after-free in service dependencies. The service registry requires runtime polymorphism - a compile-time mechanism cannot provide the same ordered-shutdown guarantees when services are registered dynamically.
 
-*Precedent.* The `execution_context` pattern originates in the Networking TS ([N4242](https://wg21.link/n4242)<sup>[35]</sup>, [N4575](https://wg21.link/n4575)<sup>[36]</sup>, [N4711](https://wg21.link/n4711)<sup>[37]</sup>) and has been stable across every revision. The service model, the shutdown ordering, and the `use_service`/`make_service` API have remained unchanged through over a decade of production use in Boost.Asio.
+*Precedent.* The `execution_context` pattern originates in the Networking TS ([N4242](https://wg21.link/n4242)<sup>[33]</sup>, [N4575](https://wg21.link/n4575)<sup>[34]</sup>, [N4711](https://wg21.link/n4711)<sup>[35]</sup>) and has been stable across every revision. The service model, the shutdown ordering, and the `use_service`/`make_service` API have remained unchanged through over a decade of production use in Boost.Asio.
 
 *Trade-off:* Virtual `shutdown()` in the service base class; runtime polymorphism in the service registry. *Revisit if:* a compile-time service mechanism can provide the same ordered-shutdown guarantees.
 
@@ -329,13 +329,15 @@ public:
 
 The `executor_ref` type-erases any _Executor_ as two pointers. This is why `task<T>` needs only one template parameter.
 
-*The type erasure trade-off.* C++20 coroutines allocate a frame for every invocation. The frame stores local variables, awaitables, and intermediate state across suspension points. For I/O coroutines, this allocation is unavoidable: Heap Allocation eLision Optimization (HALO) cannot apply when frame lifetime depends on an external event ([P2477R3](https://wg21.link/p2477r3)<sup>[31]</sup>). **The allocation we cannot avoid buys the type erasure we need.** The caller sees `task<Response>`. The coroutine body goes in a `.cpp` file; the header exposes the signature. Every type behind the frame boundary - sockets, SSL contexts, parsers - is hidden from the caller's type system. This is the foundation of ABI stability for coroutine-based libraries.
+*The type erasure trade-off.* The ideal design would let the coroutine body see the concrete executor type - zero-overhead dispatch, full inlining - while hiding it from the caller behind `task<T>`. That requires the executor type as a template parameter on the task: `task<T, Executor>`. [P4089R0](https://wg21.link/p4089r0)<sup>[26]</sup> documents why this fails in practice: a second template parameter on the task type creates cross-library interoperability problems, prevents separate compilation, and destroys ABI stability. [N5014](https://wg21.link/n5014)<sup>[36]</sup> defines `task<T, E>` with `Environment` customizing behavior - the direct "two-parameter task" that _IoAwaitable_ avoids.
 
-*Historical context.* [N4046](https://wg21.link/n4046)<sup>[21]</sup> argued that the compiler is unable to see through a virtual interface, and that forcing type erasure at the executor interface prevents implementers from choosing a better erasure. [P4099R0](https://wg21.link/p4099r0)<sup>[27]</sup> Section 5 documents the design fork: `coroutine_handle<>` in the awaitable trades type-erased streams, ABI stability, and separate compilation against full pipeline visibility and compile-time graphs. Boost.Asio and Boost.Beast made streams templates; the result was template explosion, binary bloat, and ABI instability across a decade of production use. The _IoAwaitable_ approach makes type erasure structural - the frame already pays for the allocation that makes erasure possible.
+The protocol chooses the other side of the fork: type-erase the executor through `executor_ref`, keep `task<T>` at one template parameter, and accept one vtable indirection per `dispatch`/`post` call. The cost is bounded and constant - one pointer indirection, no allocation, no template instantiation. A coroutine returning `task<int>` can be defined in a `.cpp` file and called from any translation unit without exposing the executor type, the frame allocator, or the stop token in the public interface.
 
-*Vtable cost.* One pointer indirection, roughly 1-2 nanoseconds, negligible for I/O operations at 10,000+ nanoseconds. *Revisit if:* the overhead proves measurable relative to I/O latency in a validated benchmark.
+C++20 coroutines allocate a frame for every invocation. For I/O coroutines, this allocation is unavoidable: Heap Allocation eLision Optimization (HALO) cannot apply when frame lifetime depends on an external event ([P2477R3](https://wg21.link/p2477r3)<sup>[29]</sup>). The frame already hides concrete types - sockets, SSL contexts, parsers - from the caller's type system. The executor is one more type that vanishes behind the same boundary.
 
-*One template parameter.* `task<T>` enables separate compilation and ABI stability. A coroutine returning `task<int>` can be defined in a `.cpp` file and called from any translation unit. [P4089R0](https://wg21.link/p4089r0)<sup>[28]</sup> documents how the second template parameter in `std::execution::task<T, E>` creates cross-library interoperability problems. [N5014](https://wg21.link/n5014)<sup>[38]</sup> defines `task<T, E>` with `Environment` customizing behavior - the direct "two-parameter task" that _IoAwaitable_ avoids.
+*Historical context.* [N4046](https://wg21.link/n4046)<sup>[19]</sup> argued that the compiler is unable to see through a virtual interface, and that forcing type erasure at the executor interface prevents implementers from choosing a better erasure. [P4099R0](https://wg21.link/p4099r0)<sup>[25]</sup> Section 5 documents the design fork: `coroutine_handle<>` in the awaitable trades type-erased streams, ABI stability, and separate compilation against full pipeline visibility and compile-time graphs. Boost.Asio and Boost.Beast made streams templates; the result was template explosion, binary bloat, and ABI instability across a decade of production use.
+
+*Revisit if:* the vtable overhead proves measurable relative to total operation cost in a validated benchmark, or if the language gains a mechanism to expose concrete types inside the frame without a second template parameter on the task.
 
 ### 6.3 `memory_resource`
 
@@ -351,7 +353,7 @@ A *frame allocator* is a `memory_resource` used exclusively for coroutine frame 
 
 The mimalloc result is the critical comparison: a state-of-the-art general-purpose allocator with per-thread caches, yet the recycling frame allocator is 1.28x faster. Different deployments need different strategies - bounded pools, per-tenant budgets, allocation tracking - so the execution model must let the application choose.
 
-*Historical context.* [P0054R0](https://wg21.link/p0054r0)<sup>[30]</sup> established `operator new` as the coroutine frame allocation hook. [P2006R0](https://wg21.link/p2006r0)<sup>[32]</sup> documented the "lifetime impedance mismatch" when adapting senders to awaitables - the adapter often adds a heap allocation due to inverted ownership. [P4095R0](https://wg21.link/p4095r0)<sup>[23]</sup> Section 4.3 demonstrated that the zero-allocation argument in [P1525R0](https://wg21.link/p1525r0)<sup>[20]</sup> applies to `execute(F&&)` type erasure, not to coroutine awaiters where the awaiter lives in the frame.
+*Historical context.* [P0054R0](https://wg21.link/p0054r0)<sup>[28]</sup> established `operator new` as the coroutine frame allocation hook. [P2006R0](https://wg21.link/p2006r0)<sup>[30]</sup> documented the "lifetime impedance mismatch" when adapting senders to awaitables - the adapter often adds a heap allocation due to inverted ownership. [P4095R0](https://wg21.link/p4095r0)<sup>[21]</sup> Section 4.3 demonstrated that the zero-allocation argument in [P1525R0](https://wg21.link/p1525r0)<sup>[18]</sup> applies to `execute(F&&)` type erasure, not to coroutine awaiters where the awaiter lives in the frame.
 
 The frame allocator must be present at invocation time: `operator new` executes before the coroutine body. Section 8 documents the two delivery channels.
 
@@ -363,7 +365,7 @@ These facilities are what application developers interact with directly.
 
 ### 7.1 `run_async`
 
-A regular function cannot `co_await` ([P4035R0](https://wg21.link/p4035r0)<sup>[39]</sup>). Every async program has exactly one place where synchronous code must launch the first coroutine:
+A regular function cannot `co_await` ([P4035R0](https://wg21.link/p4035r0)<sup>[37]</sup>). Every async program has exactly one place where synchronous code must launch the first coroutine:
 
 ```cpp
 int main()
@@ -374,7 +376,7 @@ int main()
 }
 ```
 
-The two-phase syntax - `run_async(ex)(my_task())` - exists because `operator new` executes before the coroutine body. The frame allocator must be set before `my_task()` is called. The first call (`run_async(ex)`) sets up the environment including the frame allocator. The second call (`(my_task())`) invokes the coroutine, whose `operator new` reads the frame allocator that is now in place. [P4127R0](https://wg21.link/p4127r0)<sup>[40]</sup> enumerates every C++20 coroutine customization point and proves the design space is closed: the parameter list and out-of-band state are the only two delivery channels.
+The two-phase syntax - `run_async(ex)(my_task())` - exists because `operator new` executes before the coroutine body. The frame allocator must be set before `my_task()` is called. The first call (`run_async(ex)`) sets up the environment including the frame allocator. The second call (`(my_task())`) invokes the coroutine, whose `operator new` reads the frame allocator that is now in place. [P4127R0](https://wg21.link/p4127r0)<sup>[38]</sup> enumerates every C++20 coroutine customization point and proves the design space is closed: the parameter list and out-of-band state are the only two delivery channels.
 
 Two-phase invocation was considered against single-call alternatives. The `operator new` timing constraint makes single-call impossible without language changes. The syntax is localized to launch sites. Application-level coroutines never see it.
 
@@ -387,7 +389,7 @@ run_async(ex,
 )(compute());
 ```
 
-Without handlers, the result is discarded and exceptions rethrow on the executor thread. This unstructured path is intentional - [P4035R0](https://wg21.link/p4035r0)<sup>[39]</sup> explains why the escape hatch must exist.
+Without handlers, the result is discarded and exceptions rethrow on the executor thread. This unstructured path is intentional - [P4035R0](https://wg21.link/p4035r0)<sup>[37]</sup> explains why the escape hatch must exist.
 
 ### 7.2 `run`
 
@@ -410,7 +412,7 @@ co_await run(worker_ex, source.get_token(), pool)(
 
 ## 8. Frame Allocator Propagation
 
-The frame allocator must reach `operator new` before the coroutine body executes. [P4127R0](https://wg21.link/p4127r0)<sup>[40]</sup> enumerates every C++20 coroutine customization point and proves the design space is closed: the parameter list and out-of-band state are the only two delivery channels. This section documents both, explains why both must exist, and details the out-of-band implementation choices.
+The frame allocator must be in place when the compiler calls `operator new` to create the coroutine frame. [P4127R0](https://wg21.link/p4127r0)<sup>[38]</sup> enumerates every C++20 coroutine customization point and proves the design space is closed: the parameter list and out-of-band state are the only two delivery channels. This section documents both, explains why both must exist, and details the out-of-band implementation choices.
 
 ### 8.1 The Parameter List (`allocator_arg_t`)
 
@@ -457,7 +459,7 @@ route_task handle_upload(
 
 Every `co_await` in the chain must forward the allocator. Containers in the standard library accept allocators because they are written once by experts and used many times. Coroutine handlers are the reverse: they are written by application developers, often in large numbers, for specific business logic. Burdening every handler with frame allocation plumbing is a significant ergonomic cost (Section 9 evaluates this against the audience skill model from Section 3).
 
-Nothing in [P4003R1](https://wg21.link/p4003r1) forbids a codebase from choosing `allocator_arg_t` propagation end to end when explicit signatures are preferable.
+Nothing in [P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> forbids a codebase from choosing `allocator_arg_t` propagation end to end when explicit signatures are preferable.
 
 ### 8.2 Out-of-Band Propagation
 
@@ -465,10 +467,10 @@ The second delivery channel. The allocator is stored somewhere `operator new` ca
 
 ```cpp
 std::pmr::memory_resource*
-get_current_frame_allocator() noexcept;
+get_cached_frame_allocator() noexcept;
 
 void
-set_current_frame_allocator(
+set_cached_frame_allocator(
     std::pmr::memory_resource* mr) noexcept;
 ```
 
@@ -514,9 +516,9 @@ The fix is `safe_resume`:
 inline void
 safe_resume(std::coroutine_handle<> h) noexcept
 {
-    auto* saved = get_current_frame_allocator();
+    auto* saved = get_cached_frame_allocator();
     h.resume();
-    set_current_frame_allocator(saved);
+    set_cached_frame_allocator(saved);
 }
 ```
 
@@ -565,15 +567,15 @@ Type erasure through `executor_ref` (Section 6.2) keeps `task<T>` at one templat
 
 ---
 
-## 10. Coexistence with `std::execution`
+## 10. Complement: `std::execution`
 
-[P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup> provides a uniform sender algebra, schedulers, customization points for heterogeneous backends, and structured concurrency building blocks. The _IoAwaitable_ vocabulary is not a replacement for `std::execution`. The two models address different domains, and C++ needs both.
+[P2300R10](https://wg21.link/p2300r10)<sup>[7]</sup> provides a uniform sender algebra, schedulers, customization points for heterogeneous backends, and structured concurrency building blocks. The _IoAwaitable_ vocabulary and `std::execution` are companions. Each contributes what the other cannot.
 
 Our evidence shows that the sender algebra is structurally suited to DAG-shaped work - GPU kernel fusion, heterogeneous compute pipelines, complex parallel algorithms - where sender composition, schedulers, and structured concurrency across heterogeneous resources are the essential operations. Byte-oriented I/O - sockets, DNS, TLS, HTTP - is sequential by nature for many handlers. A coroutine reads bytes, parses a frame, writes a response. The work is a chain, not a graph. _IoAwaitable_ captures this pattern with minimal machinery.
 
-[P4094R0](https://wg21.link/p4094r0)<sup>[22]</sup> traces the executor unification arc from [P0443](https://wg21.link/p0443r14)<sup>[16]</sup> (14 revisions, never deployed as unified) through [P1525R0](https://wg21.link/p1525r0)<sup>[20]</sup> (Cologne 2019) to [P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup>. [P4095R0](https://wg21.link/p4095r0)<sup>[23]</sup> demonstrates that under continuation framing, three of four deficiencies identified by [P1525R0](https://wg21.link/p1525r0)<sup>[20]</sup> do not arise. [P4096R0](https://wg21.link/p4096r0)<sup>[24]</sup> re-examines [P2464R0](https://wg21.link/p2464r0)<sup>[12]</sup> under the coroutine executor model. [P4097R0](https://wg21.link/p4097r0)<sup>[25]</sup> traces the evidence available at the time of the [P2453R0](https://wg21.link/p2453r0)<sup>[11]</sup> "including networking" poll. [P4098R0](https://wg21.link/p4098r0)<sup>[26]</sup> tabulates claims against published evidence across the entire executor and networking timeline.
+[P4094R0](https://wg21.link/p4094r0)<sup>[20]</sup> traces the executor unification arc from [P0443](https://wg21.link/p0443r14)<sup>[15]</sup> (14 revisions, never deployed as unified) through [P1525R0](https://wg21.link/p1525r0)<sup>[18]</sup> (Cologne 2019) to [P2300R10](https://wg21.link/p2300r10)<sup>[7]</sup>. [P4095R0](https://wg21.link/p4095r0)<sup>[21]</sup> demonstrates that under continuation framing, three of four deficiencies identified by [P1525R0](https://wg21.link/p1525r0)<sup>[18]</sup> do not arise. [P4096R0](https://wg21.link/p4096r0)<sup>[22]</sup> re-examines [P2464R0](https://wg21.link/p2464r0)<sup>[11]</sup> under the coroutine executor model. [P4097R0](https://wg21.link/p4097r0)<sup>[23]</sup> traces the evidence available at the time of the [P2453R0](https://wg21.link/p2453r0)<sup>[10]</sup> "including networking" poll. [P4098R0](https://wg21.link/p4098r0)<sup>[24]</sup> tabulates claims against published evidence across the entire executor and networking timeline.
 
-**Bridges** make coexistence concrete. [P4092R0](https://wg21.link/p4092r0) specifies **`await_sender`**: consume a `std::execution` sender from inside an _IoAwaitable_ coroutine and return to the I/O executor. [P4093R0](https://wg21.link/p4093r0) specifies **`as_sender`**: wrap an _IoAwaitable_ as a sender for algorithms that speak sender/receiver.
+**Bridges** make the partnership concrete. [P4092R0](https://wg21.link/p4092r0)<sup>[42]</sup> specifies **`await_sender`**: consume a `std::execution` sender from inside an _IoAwaitable_ coroutine and return to the I/O executor. [P4093R0](https://wg21.link/p4093r0)<sup>[43]</sup> specifies **`as_sender`**: wrap an _IoAwaitable_ as a sender for algorithms that speak sender/receiver.
 
 ```cpp
 task<> handle_request(tcp_stream& stream)
@@ -601,7 +603,7 @@ The I/O coroutine does not become a sender body. The GPU work remains a sender g
 
 ## 11. Evidence and Accountability ([P4133R0](https://wg21.link/p4133r0))
 
-[P4133R0](https://wg21.link/p4133r0) Section 3 lists topics for an implementation and experience paper. The protocol described in this paper was not designed top-down from theory. It was discovered bottom-up from working code, starting from an empty directory with nothing inherited and no existing framework assumed. Each facility was added when the next use case demanded it and not before. Every design decision recorded in this paper was forced by that process.
+[P4133R0](https://wg21.link/p4133r0)<sup>[44]</sup> Section 3 lists topics for an implementation and experience paper. The protocol described in this paper was not designed top-down from theory. It was discovered bottom-up from working code, starting from an empty directory with nothing inherited and no existing framework assumed. Each facility was added when the next use case demanded it and not before. Every design decision recorded in this paper was forced by that process.
 
 The protocol is recent. The patterns it captures are not. Type-erased executors, stop-token cancellation, and per-chain frame allocation have been refined across years of networking library development. The protocol is small because it was distilled from experience, not because it is incomplete.
 
@@ -609,7 +611,7 @@ The protocol is recent. The patterns it captures are not. Type-erased executors,
 
 Four alternative approaches address the same problem space. Each is presented at its strongest.
 
-**Sender/receiver ([P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup>).** The committee-adopted framework for structured asynchronous execution. Its advantages are real: generality across I/O, GPU, and parallel workloads; a formal algebra of sender composition; strong structured-concurrency guarantees. For domains that require DAG-shaped execution graphs, sender/receiver provides machinery that _IoAwaitable_ does not attempt. Where sender/receiver is less well suited is in the I/O-specific properties: it requires a second template parameter on the task type, it does not define a frame allocator propagation mechanism, and the sender composition algebra adds conceptual weight that I/O coroutines do not use. [P4007R0](https://wg21.link/p4007r0)<sup>[1]</sup> and [P4014R0](https://wg21.link/p4014r0)<sup>[2]</sup> examine this relationship in detail.
+**Sender/receiver ([P2300R10](https://wg21.link/p2300r10)<sup>[7]</sup>).** The committee-adopted framework for structured asynchronous execution. Its advantages are real: generality across I/O, GPU, and parallel workloads; a formal algebra of sender composition; strong structured-concurrency guarantees. For domains that require DAG-shaped execution graphs, sender/receiver provides machinery that _IoAwaitable_ does not attempt. Where sender/receiver is less well suited is in the I/O-specific properties: it requires a second template parameter on the task type, it does not define a frame allocator propagation mechanism, and the sender composition algebra adds conceptual weight that I/O coroutines do not use. [P4007R0](https://wg21.link/p4007r0)<sup>[1]</sup> and [P4014R0](https://wg21.link/p4014r0)<sup>[2]</sup> examine this relationship in detail.
 
 **Boost.Asio completion handlers ([Boost.Asio](https://www.boost.org/doc/libs/release/doc/html/boost_asio.html)<sup>[3]</sup>).** The most widely deployed C++ async I/O model. Mature, extensively documented. Supports coroutines through completion tokens. The absence of a standard frame allocator propagation mechanism forces either `allocator_arg_t` signature pollution or reliance on `shared_ptr` for lifetime management.
 
@@ -621,15 +623,15 @@ Four alternative approaches address the same problem space. Each is presented at
 
 Each major design decision is documented with rationale, trade-offs, and conditions for revisiting.
 
-**Two-argument `await_suspend(coroutine_handle<>, io_env const*)`** ([P4003R1](https://wg21.link/p4003r1) Section 4.1). The only signature that makes protocol violations a compile error. *Trade-off:* the signature is non-standard; existing awaitables must be adapted. *Revisit if:* the language gains a mechanism for statically verifying awaitable-promise compatibility.
+**Two-argument `await_suspend(coroutine_handle<>, io_env const*)`** ([P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> Section 4.1). The only signature that makes protocol violations a compile error. *Trade-off:* the signature is non-standard; existing awaitables must be adapted. *Revisit if:* the language gains a mechanism for statically verifying awaitable-promise compatibility.
 
 **Out-of-band frame allocator propagation** (Section 8). Respects `operator new` timing without polluting application coroutine signatures. *Trade-off:* introduces a non-obvious propagation path. *Revisit if:* the language gains a mechanism to inject allocator context into `operator new` without function parameters.
 
-**Type-erased `executor_ref`** ([P4003R1](https://wg21.link/p4003r1) Section 4.3). Keeps `task<T>` at one template parameter. *Trade-off:* type information is lost behind the erasure boundary. *Revisit if:* the overhead proves measurable relative to I/O latency.
+**Type-erased `executor_ref`** ([P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> Section 4.3). Keeps `task<T>` at one template parameter. *Trade-off:* type information is lost behind the erasure boundary. *Revisit if:* the overhead proves measurable relative to I/O latency.
 
-**`io_env` passed by pointer** ([P4003R1](https://wg21.link/p4003r1) Section 4.1). Pointer semantics make ownership explicit. *Trade-off:* nullable pointer. *Revisit if:* a reference-based alternative can enforce the same ownership semantics.
+**`io_env` passed by pointer** ([P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> Section 4.1). Pointer semantics make ownership explicit. *Trade-off:* nullable pointer. *Revisit if:* a reference-based alternative can enforce the same ownership semantics.
 
-**`execution_context` as a base class** ([P4003R1](https://wg21.link/p4003r1) Section 5.3). I/O objects bind to contexts, not executors. *Trade-off:* virtual `shutdown()`; runtime polymorphism. *Revisit if:* a compile-time service mechanism provides the same guarantees.
+**`execution_context` as a base class** ([P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup> Section 5.3). I/O objects bind to contexts, not executors. *Trade-off:* virtual `shutdown()`; runtime polymorphism. *Revisit if:* a compile-time service mechanism provides the same guarantees.
 
 ### 11.3 Domain Coverage
 
@@ -640,7 +642,7 @@ Each major design decision is documented with rationale, trade-offs, and conditi
 | DNS resolution   | Corosio<sup>[6]</sup>  | All supported platforms                                  |
 | Timers           | Corosio<sup>[6]</sup>  | All supported platforms                                  |
 
-[P4125R1](https://wg21.link/p4125r1)<sup>[41]</sup> reports a derivatives exchange porting from Asio callbacks to coroutine-native I/O using the _IoAwaitable_ protocol.
+[P4125R1](https://wg21.link/p4125r1)<sup>[39]</sup> reports a derivatives exchange porting from Asio callbacks to coroutine-native I/O using the _IoAwaitable_ protocol.
 
 Domains not yet validated: embedded/real-time, file I/O, database I/O, game engines. GPU compute is a complementary domain addressed by `std::execution` (Section 10).
 
@@ -670,7 +672,7 @@ We commit to a retrospective at two standard releases or six years after standar
 
 ## Appendix A: Understanding Asynchronous I/O
 
-Not every committee member or library reviewer works with network programming daily, and the challenges that shape I/O library design may not be immediately obvious from other domains. This appendix provides the background needed to evaluate the design decisions in [P4003R1](https://wg21.link/p4003r1).
+Not every committee member or library reviewer works with network programming daily, and the challenges that shape I/O library design may not be immediately obvious from other domains. This appendix provides the background needed to evaluate the design decisions in [P4003R1](https://wg21.link/p4003r1)<sup>[41]</sup>.
 
 ### A.1 The Problem with Waiting
 
@@ -734,7 +736,7 @@ A strand guarantees that handlers submitted through it never execute concurrentl
 
 C++20's `std::stop_token` provides cooperative cancellation. The stop token propagates through the coroutine chain. At the lowest level, I/O objects observe the token and cancel pending operations with the appropriate OS primitive. Cancellation is cooperative - no operation is forcibly terminated.
 
-### A.9 Moving Forward
+### A.9 With These Fundamentals
 
 With these fundamentals in hand - event loops, executors, strands, and cancellation - you have the conceptual vocabulary to understand the design decisions in the sections that precede this appendix. If you are eager to experiment, [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup> implements these concepts in production-ready code.
 
@@ -935,7 +937,7 @@ class io_awaitable_promise_base
 public:
     static void* operator new(std::size_t size)
     {
-        auto* mr = get_current_frame_allocator();
+        auto* mr = get_cached_frame_allocator();
         if (!mr)
             mr = std::pmr::new_delete_resource();
         auto total =
@@ -1058,7 +1060,7 @@ struct promise_type
 
 ## Acknowledgements
 
-The authors would like to thank Chris Kohlhoff for Boost.Asio and Lewis Baker for his foundational work on C++ coroutines - their contributions shaped the landscape upon which this paper builds. We also thank Peter Dimov and Mateusz Pusz for their valuable feedback, as well as Mohammad Nejati, Michael Vandeberg, and Klemens Morgenstern for their assistance with the implementation. The out-of-band propagation spoilage gap, which led to the `safe_resume` protocol described in Section 8.3, was identified during internal review.
+The authors would like to thank Chris Kohlhoff for Boost.Asio and Lewis Baker for his foundational work on C++ coroutines - their contributions shaped the foundation upon which this paper builds. We also thank Peter Dimov and Mateusz Pusz for their valuable feedback, as well as Mohammad Nejati, Michael Vandeberg, and Klemens Morgenstern for their assistance with the implementation. The out-of-band propagation spoilage gap, which led to the `safe_resume` protocol described in Section 8.3, was identified during internal review.
 
 ---
 
@@ -1070,42 +1072,41 @@ The authors would like to thank Chris Kohlhoff for Boost.Asio and Lewis Baker fo
 4. [The C10K problem](http://www.kegel.com/c10k.html) - Scalable network programming (Dan Kegel). http://www.kegel.com/c10k.html
 5. [Capy](https://github.com/cppalliance/capy) - _IoAwaitable_ protocol implementation (Vinnie Falco, Steve Gerbino). https://github.com/cppalliance/capy
 6. [Corosio](https://github.com/cppalliance/corosio) - Coroutine-native I/O library (Vinnie Falco, Steve Gerbino). https://github.com/cppalliance/corosio
-7. [Http](https://github.com/cppalliance/http) - HTTP library built on Capy (Vinnie Falco). https://github.com/cppalliance/http
-8. [P2300R10](https://wg21.link/p2300r10) - "`std::execution`" (Dominiak, Baker, Howes, Shoop, Garland, Niebler, Lelbach, 2024). https://wg21.link/p2300r10
-9. [P0592R5](https://wg21.link/p0592r5) - "To boldly suggest an overall plan for C++26" (Ville Voutilainen, 2022). https://wg21.link/p0592r5
-10. [P2452R0](https://wg21.link/p2452r0) - "2021 October Library Evolution Polls on Networking and Executors" (Lelbach, Fracassi, Craig). https://wg21.link/p2452r0
-11. [P2453R0](https://wg21.link/p2453r0) - "2021 October Library Evolution Poll Outcomes" (Lelbach, Fracassi, Craig, 2022). https://wg21.link/p2453r0
-12. [P2464R0](https://wg21.link/p2464r0) - "Ruminations on networking and executors" (Ville Voutilainen, 2021). https://wg21.link/p2464r0
-13. [P3185R0](https://wg21.link/p3185r0) - "A proposed direction for C++ Standard Networking based on IETF TAPS" (Thomas Rodgers, 2024). https://wg21.link/p3185r0
-14. [P3482R0](https://wg21.link/p3482r0) - "Design for C++ networking based on IETF TAPS" (Thomas Rodgers, Dietmar K&uuml;hl, 2024). https://wg21.link/p3482r0
-15. [P4100R0](https://wg21.link/p4100r0) - "The Network Endeavor: Coroutine-Native I/O for C++29" (Vinnie Falco et al., 2026). https://wg21.link/p4100r0
-16. [P0443R14](https://wg21.link/p0443r14) - "A Unified Executors Proposal for C++" (Hoberock, Garland, Kohlhoff, et al., 2020). https://wg21.link/p0443r14
-17. [P1738R0](https://wg21.link/p1738r0) - "The Executor Concept Hierarchy Needs a Single Root" (Eric Niebler, 2019). https://wg21.link/p1738r0
-18. [P0688R0](https://wg21.link/p0688r0) - "Simplify the Unified Executors Design" (2017). https://wg21.link/p0688r0
-19. [P1791R0](https://wg21.link/p1791r0) - "Evolution of P0443" (2019). https://wg21.link/p1791r0
-20. [P1525R0](https://wg21.link/p1525r0) - "One-Way execute is a Poor Basis Operation" (Bryce Adelstein Lelbach, Lewis Baker, 2019). https://wg21.link/p1525r0
-21. [N4046](https://wg21.link/n4046) - "Executors and Asynchronous Operations" (Chris Kohlhoff, 2014). https://wg21.link/n4046
-22. [P4094R0](https://wg21.link/p4094r0) - "History: The Unification of Executors and P0443" (Vinnie Falco, 2026). https://wg21.link/p4094r0
-23. [P4095R0](https://wg21.link/p4095r0) - "History: The Basis Operation and P1525" (Vinnie Falco, 2026). https://wg21.link/p4095r0
-24. [P4096R0](https://wg21.link/p4096r0) - "History: Coroutine Executors and P2464R0" (Vinnie Falco, 2026). https://wg21.link/p4096r0
-25. [P4097R0](https://wg21.link/p4097r0) - "History: The Networking Claim and P2453R0" (Vinnie Falco, 2026). https://wg21.link/p4097r0
-26. [P4098R0](https://wg21.link/p4098r0) - "History: Async Claims and Evidence" (Vinnie Falco, 2026). https://wg21.link/p4098r0
-27. [P4099R0](https://wg21.link/p4099r0) - "History: The Twenty-One Year Networking Arc" (Vinnie Falco, 2026). https://wg21.link/p4099r0
-28. [P4089R0](https://wg21.link/p4089r0) - "Info: On the Diversity of Coroutine Task Types" (Vinnie Falco, 2026). https://wg21.link/p4089r0
-29. [P2583](https://wg21.link/p2583) - "Symmetric Transfer" (Vinnie Falco). https://wg21.link/p2583
-30. [P0054R0](https://wg21.link/p0054r0) - "Coroutines: reports from the fields" (Gor Nishanov, 2015). https://wg21.link/p0054r0
-31. [P2477R3](https://wg21.link/p2477r3) - "Allow programmers to control coroutine elision" (Xu, 2022). https://wg21.link/p2477r3
-32. [P2006R0](https://wg21.link/p2006r0) - "Eliminating heap-allocations in sender/receiver" (Baker, Niebler, Shoop, Howes, 2020). https://wg21.link/p2006r0
-33. [P2175R0](https://wg21.link/p2175r0) - "Composable cancellation for sender/receiver" (Lewis Baker, 2020). https://wg21.link/p2175r0
-34. [P3409R0](https://wg21.link/p3409r0) - "Stop token constraints" (Lewis Baker, 2024). https://wg21.link/p3409r0
-35. [N4242](https://wg21.link/n4242) - "Executors and Asynchronous Operations, Revision 1" (Chris Kohlhoff, 2014). https://wg21.link/n4242
-36. [N4575](https://wg21.link/n4575) - "Networking TS Working Draft" (2016). https://wg21.link/n4575
-37. [N4711](https://wg21.link/n4711) - "Networking TS Working Draft" (2017). https://wg21.link/n4711
-38. [N5014](https://wg21.link/n5014) - "Working Draft, Standard for Programming Language C++" (2025). https://wg21.link/n5014
-39. [P4035R0](https://wg21.link/p4035r0) - "Support: The Need for Escape Hatches" (Vinnie Falco, 2026). https://wg21.link/p4035r0
-40. [P4127R0](https://wg21.link/p4127r0) - "The Coroutine Frame Allocator Timing Problem" (Vinnie Falco, 2026). https://wg21.link/p4127r0
-41. [P4125R1](https://wg21.link/p4125r1) - "Report: Coroutine-Native I/O at a Derivatives Exchange" (Mungo Gill, 2026). https://wg21.link/p4125r1
-42. [P2469R0](https://wg21.link/p2469r0) - "Response to P2464" (Chris Kohlhoff et al., 2021). https://wg21.link/p2469r0
-43. [P0703R0](https://wg21.link/p0703r0) - "Bloomberg's Perspective on the Networking TS" (David Sankel, 2017). https://wg21.link/p0703r0
-44. [N4143](https://wg21.link/n4143) - "Executors and schedulers, revision 4" (Chris Mysen, 2014). https://wg21.link/n4143
-45. [P0113R0](https://wg21.link/p0113r0) - "Executors and asynchronous operations" (Chris Kohlhoff, 2015). https://wg21.link/p0113r0
+7. [P2300R10](https://wg21.link/p2300r10) - "`std::execution`" (Dominiak, Baker, Howes, Shoop, Garland, Niebler, Lelbach, 2024). https://wg21.link/p2300r10
+8. [P0592R5](https://wg21.link/p0592r5) - "To boldly suggest an overall plan for C++26" (Ville Voutilainen, 2022). https://wg21.link/p0592r5
+9. [P2452R0](https://wg21.link/p2452r0) - "2021 October Library Evolution Polls on Networking and Executors" (Lelbach, Fracassi, Craig). https://wg21.link/p2452r0
+10. [P2453R0](https://wg21.link/p2453r0) - "2021 October Library Evolution Poll Outcomes" (Lelbach, Fracassi, Craig, 2022). https://wg21.link/p2453r0
+11. [P2464R0](https://wg21.link/p2464r0) - "Ruminations on networking and executors" (Ville Voutilainen, 2021). https://wg21.link/p2464r0
+12. [P3185R0](https://wg21.link/p3185r0) - "A proposed direction for C++ Standard Networking based on IETF TAPS" (Thomas Rodgers, 2024). https://wg21.link/p3185r0
+13. [P3482R0](https://wg21.link/p3482r0) - "Design for C++ networking based on IETF TAPS" (Thomas Rodgers, Dietmar K&uuml;hl, 2024). https://wg21.link/p3482r0
+14. [P4100R0](https://wg21.link/p4100r0) - "The Network Endeavor: Coroutine-Native I/O for C++29" (Vinnie Falco et al., 2026). https://wg21.link/p4100r0
+15. [P0443R14](https://wg21.link/p0443r14) - "A Unified Executors Proposal for C++" (Hoberock, Garland, Kohlhoff, et al., 2020). https://wg21.link/p0443r14
+16. [P1738R0](https://wg21.link/p1738r0) - "The Executor Concept Hierarchy Needs a Single Root" (Eric Niebler, 2019). https://wg21.link/p1738r0
+17. [P1791R0](https://wg21.link/p1791r0) - "Evolution of P0443" (2019). https://wg21.link/p1791r0
+18. [P1525R0](https://wg21.link/p1525r0) - "One-Way execute is a Poor Basis Operation" (Eric Niebler, Kirk Shoop, Lewis Baker, Lee Howes, 2019). https://wg21.link/p1525r0
+19. [N4046](https://wg21.link/n4046) - "Executors and Asynchronous Operations" (Chris Kohlhoff, 2014). https://wg21.link/n4046
+20. [P4094R0](https://wg21.link/p4094r0) - "History: The Unification of Executors and P0443" (Vinnie Falco, 2026). https://wg21.link/p4094r0
+21. [P4095R0](https://wg21.link/p4095r0) - "History: The Basis Operation and P1525" (Vinnie Falco, 2026). https://wg21.link/p4095r0
+22. [P4096R0](https://wg21.link/p4096r0) - "History: Coroutine Executors and P2464R0" (Vinnie Falco, 2026). https://wg21.link/p4096r0
+23. [P4097R0](https://wg21.link/p4097r0) - "History: The Networking Claim and P2453R0" (Vinnie Falco, 2026). https://wg21.link/p4097r0
+24. [P4098R0](https://wg21.link/p4098r0) - "History: Async Claims and Evidence" (Vinnie Falco, 2026). https://wg21.link/p4098r0
+25. [P4099R0](https://wg21.link/p4099r0) - "History: The Twenty-One Year Networking Arc" (Vinnie Falco, 2026). https://wg21.link/p4099r0
+26. [P4089R0](https://wg21.link/p4089r0) - "Info: On the Diversity of Coroutine Task Types" (Vinnie Falco, 2026). https://wg21.link/p4089r0
+27. [P2583R3](https://wg21.link/p2583r3) - "Symmetric Transfer" (Mungo Gill, Vinnie Falco, 2026). https://wg21.link/p2583r3
+28. [P0054R0](https://wg21.link/p0054r0) - "Coroutines: reports from the fields" (Gor Nishanov, 2015). https://wg21.link/p0054r0
+29. [P2477R3](https://wg21.link/p2477r3) - "Allow programmers to control coroutine elision" (Xu, 2022). https://wg21.link/p2477r3
+30. [P2006R0](https://wg21.link/p2006r0) - "Eliminating heap-allocations in sender/receiver" (Baker, Niebler, Shoop, Howes, 2020). https://wg21.link/p2006r0
+31. [P2175R0](https://wg21.link/p2175r0) - "Composable cancellation for sender/receiver" (Lewis Baker, 2020). https://wg21.link/p2175r0
+32. [P3409R0](https://wg21.link/p3409r0) - "Stop token constraints" (Lewis Baker, 2024). https://wg21.link/p3409r0
+33. [N4242](https://wg21.link/n4242) - "Executors and Asynchronous Operations, Revision 1" (Chris Kohlhoff, 2014). https://wg21.link/n4242
+34. [N4575](https://wg21.link/n4575) - "Networking TS Working Draft" (2016). https://wg21.link/n4575
+35. [N4711](https://wg21.link/n4711) - "Networking TS Working Draft" (2017). https://wg21.link/n4711
+36. [N5014](https://wg21.link/n5014) - "Working Draft, Standard for Programming Language C++" (2025). https://wg21.link/n5014
+37. [P4035R0](https://wg21.link/p4035r0) - "Support: The Need for Escape Hatches" (Vinnie Falco, 2026). https://wg21.link/p4035r0
+38. [P4127R0](https://wg21.link/p4127r0) - "The Coroutine Frame Allocator Timing Problem" (Vinnie Falco, 2026). https://wg21.link/p4127r0
+39. [P4125R1](https://wg21.link/p4125r1) - "Report: Coroutine-Native I/O at a Derivatives Exchange" (Mungo Gill, 2026). https://wg21.link/p4125r1
+40. [N1925](https://wg21.link/n1925) - "Networking proposal for TR2" (Gerhard Wesp, 2005). https://wg21.link/n1925
+41. [P4003R1](https://wg21.link/p4003r1) - "Ask: A Minimal Coroutine Execution Model" (Vinnie Falco, Steve Gerbino, Mungo Gill, 2026). https://wg21.link/p4003r1
+42. [P4092R0](https://wg21.link/p4092r0) - "Info: Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4092r0
+43. [P4093R0](https://wg21.link/p4093r0) - "Info: Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4093r0
+44. [P4133R0](https://wg21.link/p4133r0) - "What Every Proposal Must Contain" (Vinnie Falco, 2026). https://wg21.link/p4133r0

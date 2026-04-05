@@ -117,7 +117,7 @@ Twenty-one years is long enough.
 - [P4092R0](https://isocpp.org/files/papers/P4092R0.pdf) "Consuming Senders from Coroutine-Native Code" - the sender-to-awaitable bridge, working implementation
 - [P4093R0](https://isocpp.org/files/papers/P4093R0.pdf) "Producing Senders from Coroutine-Native Code" - the awaitable-to-sender bridge, working implementation
 - [P4123R0](https://isocpp.org/files/papers/P4123R0.pdf) "The Cost of Senders for Coroutine I/O" - structural cost analysis, every concession granted
-- [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) "The Case for Coroutines" - five properties that make coroutines the right substrate for I/O
+- [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) "What C++20 Coroutines Already Buy The Standard" - five properties that make coroutines the right substrate for I/O
 - [P4003R0](https://isocpp.org/files/papers/P4003R0.pdf) "Coroutines for I/O" - defines the IoAwaitable protocol
 - [P4127R0](https://isocpp.org/files/papers/P4127R0.pdf) "The Coroutine Frame Allocator Timing Problem" - the frame allocator must arrive before the frame exists
 

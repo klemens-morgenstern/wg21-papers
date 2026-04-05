@@ -1,7 +1,7 @@
 ---
 title: "Support: The Need for Escape Hatches"
-document: D4035R0
-date: 2026-02-25
+document: P4035R0
+date: 2026-03-20
 reply-to:
   - "Vinnie Falco <vinnie.falco@gmail.com>"
 audience: LEWG
@@ -9,13 +9,15 @@ audience: LEWG
 
 ## Abstract
 
-"C++ should make the safe thing easy, and the unsafe thing possible."
+<!-- The aphorism is intentional. It is powerful, lyrical, and the best
+     abstract of any of my papers. Do not change it. -->
+C++ should make the safe thing easy, and the unsafe thing possible.
 
 ---
 
 ## Revision History
 
-### R0: February 2026 (post-Croydon mailing)
+### R0: March 2026 (post-Croydon mailing)
 
 * Initial version.
 
@@ -25,6 +27,8 @@ audience: LEWG
 
 The author provides information and serves at the pleasure of the committee.
 
+The author maintains [Capy](https://github.com/cppalliance/capy).
+
 This paper asks for nothing.
 
 ---
@@ -33,30 +37,43 @@ This paper asks for nothing.
 
 Safe interfaces should be the default. They should validate input, maintain invariants, and protect users from misuse. However, C++ also needs an explicit path for trusted data - when the precondition is already satisfied at a boundary and re-validation is pure overhead.
 
+The two paths differ in their contracts:
+
+| | Safe path | Escape hatch |
+|---|---|---|
+| **Contract** | Wide | Narrow |
+| **Naming** | Default | Explicit, marked |
+
+Functions on the safe path should have wide contracts. Functions on the escape hatch carry narrow contracts.
+
 This pattern appears in the standard library, in production Boost libraries, in the current `cstring_view` proposal, and in coroutine-based concurrency libraries. Four independent examples follow. A fifth section applies the pattern to `cstring_view` constructor design. A sixth examines what happens when the pattern is applied to the implicit `char const*` constructor.
 
 ---
 
 ## 3. Standard Precedent
 
-The standard library provides [`std::condition_variable`](https://eel.is/c++draft/thread.condition.condvar)<sup>[1]</sup>, which requires `std::unique_lock<std::mutex>`. This constraint enables optimizations. When the constraint is too narrow - when the user holds a different lock type - [`std::condition_variable_any`](https://eel.is/c++draft/thread.condition.condvarany)<sup>[1]</sup> provides the explicit broader path:
+The standard library provides [`std::condition_variable`](https://eel.is/c++draft/thread.condition.condvar)<sup>[1]</sup>, which requires `std::unique_lock<std::mutex>`, and [`std::condition_variable_any`](https://eel.is/c++draft/thread.condition.condvarany)<sup>[1]</sup>, which works with any lockable type:
 
 ```cpp
 std::mutex mtx;
 std::shared_mutex smtx;
 
-// Safe default: constrained to unique_lock<mutex>.
+// Constrained: only unique_lock<mutex>.
 std::condition_variable cv;
 std::unique_lock<std::mutex> lk(mtx);
 cv.wait(lk);
 
-// Escape hatch: works with any lockable.
+// Broader: works with any lockable.
 std::condition_variable_any cv_any;
 std::shared_lock<std::shared_mutex> slk(smtx);
 cv_any.wait(slk);
 ```
 
-The constrained interface is the default. The broader interface is explicit and named. Both exist in the standard.
+`condition_variable_any` is the broader, more general facility - the safe path that works with any lock type. `condition_variable` is the optimized path - a thin wrapper over `pthread_cond_t` that only works with one lock type. Under the escape-hatch principle, the broad facility should carry the default name and the optimized facility should carry the marked name.
+
+The naming went the other way. N2406<sup>[13]</sup> documents the rationale: `condition_variable` was designed as a "razor thin layer over OS supplied condition variables," and `condition_variable_any` was the generalization built on top. The primary name followed the POSIX lineage, not the safety principle. The optimized primitive got the short name; the broader facility got the suffix.
+
+The standard library already has the pattern. It got the naming backwards because the principle was not articulated at the time.
 
 ---
 
@@ -77,7 +94,7 @@ Internally, the library's own parser has already validated the encoding before e
 pct_string_view s = make_pct_string_view_unsafe(data, size, decoded_size);
 ```
 
-This pattern was adopted independently by three Boost libraries: Boost.URL ([`make_pct_string_view_unsafe`](https://github.com/boostorg/url/blob/develop/include/boost/url/pct_string_view.hpp)<sup>[3]</sup>), Boost.Process ([`basic_cstring_ref`](https://github.com/boostorg/process/blob/develop/include/boost/process/v2/cstring_ref.hpp)<sup>[4]</sup>), and Boost.SQLite ([`cstring_ref`](https://github.com/klemens-morgenstern/sqlite/blob/develop/include/boost/sqlite/cstring_ref.hpp)<sup>[5]</sup>). Three independent libraries arriving at the same design is not coincidence. It is convergence on a structural need.
+This pattern was adopted by three Boost libraries with years of field experience: Boost.URL ([`make_pct_string_view_unsafe`](https://github.com/boostorg/url/blob/develop/include/boost/url/pct_string_view.hpp)<sup>[3]</sup>), Boost.Process ([`basic_cstring_ref`](https://github.com/boostorg/process/blob/develop/include/boost/process/v2/cstring_ref.hpp)<sup>[4]</sup>), and Boost.SQLite ([`cstring_ref`](https://github.com/klemens-morgenstern/sqlite/blob/develop/include/boost/sqlite/cstring_ref.hpp)<sup>[5]</sup>). Three libraries arriving at the same design is not coincidence. It is convergence on a structural need.
 
 ---
 
@@ -172,14 +189,13 @@ void caller_b(std::span<const char> buffer)
 Caller A holds trusted data and wants zero-cost construction. Caller B holds untrusted data and needs validation. One constructor cannot serve both safely. The escape-hatch pattern resolves this:
 
 ```cpp
-// Safe: scans [str, str+len] for the first null.
-// Postcondition: data()[size()] == '\0',
-//   no interior nulls.
+// Wide contract: validates that str[len] == '\0'.
+// Throws if not. No undefined behavior.
 constexpr cstring_view(const charT* str,
     size_type len);
 
-// Escape hatch: O(1), no scan.
-// Precondition: str[len] == '\0', no interior nulls.
+// Narrow contract: O(1), no scan.
+// Precondition: str[len] == '\0'. UB if not.
 static constexpr cstring_view unsafe(
     const charT* str, size_type len) noexcept;
 ```
@@ -248,11 +264,33 @@ P3566R2's own migration data quantifies the scope. The Qt experiment reports tha
 
 The `char[N]` constructor adds a bounded path for literals. The `char const*` constructor is the only implicit path for runtime string sources - `std::exception::what()`, `std::getenv()`, `std::strerror()`, stored `c_str()` results, ternary expressions. Adding a path is not the same as closing one.
 
+LEWG reviewed this evidence at Sofia (June 2025) and reached consensus against pursuing the full direction of P3566R1 for the standard library (SF/F/N/A/SA: 0/7/3/9/6)<sup>[12]</sup>. The committee did encourage further work in a profile context and on changing undefined behavior for NULL to erroneous behavior - directions that do not require closing the implicit constructor. The migration costs documented above explain the first outcome.
+
+At Croydon (March 2026), LEWG polled P3655R3's constructor design directly<sup>[14]</sup>:
+
+**POLL:** We would like to see array constructors in this paper for `cstring_view` before forwarding.
+
+| SF | F | N | A | SA |
+|---:|---:|---:|---:|---:|
+| 2 | 3 | 7 | 8 | 5 |
+
+Weak consensus against.
+
+**POLL:** We would like to remove the ctor that takes `(char*)` (only) from the proposal for now. (Due to safety concerns.)
+
+| SF | F | N | A | SA |
+|---:|---:|---:|---:|---:|
+| 1 | 5 | 1 | 8 | 9 |
+
+Consensus against.
+
+The committee declined both to require bounded array constructors before forwarding and to remove the `char const*` constructor on safety grounds.
+
 ---
 
 ## 9. Conclusion
 
-The standard library already provides constrained defaults with explicit broader counterparts. Production libraries independently converge on the same pattern for trusted boundaries. The same principle governs concurrency structure. The evidence documents a recurring design value: safe by default, with explicit escape hatches where zero-cost composition requires them.
+The standard library already provides constrained defaults with explicit broader counterparts. Production libraries converge on the same pattern for trusted boundaries. The same principle governs concurrency structure. The evidence documents a recurring design value: safe by default, with explicit escape hatches where zero-cost composition requires them.
 
 How explicit escape hatches interact with Hardening, Contracts, and Erroneous Behavior is a related question that deserves separate treatment.
 
@@ -260,7 +298,7 @@ How explicit escape hatches interact with Hardening, Contracts, and Erroneous Be
 
 # Acknowledgements
 
-The author thanks Jonathan Wakely, Jan Schultke, Pablo Halpern, and Nevin Liber for discussion and feedback on safe and unsafe construction paths. The author thanks Peter Bindels, Hana Dusikova, Jeremy Rifkin, Marco Foco, and Alexey Shevlyakov for their work on `cstring_view`. The author thanks Giuseppe D'Angelo and Joshua Kriegshauser for the migration data cited in Section 7.
+The author thanks Howard Hinnant for the `condition_variable` example and for the historical context in N2406. The author thanks Jonathan Wakely, Jan Schultke, Pablo Halpern, and Nevin Liber for discussion and feedback on safe and unsafe construction paths. The author thanks Peter Bindels, Hana Dusikova, Jeremy Rifkin, Marco Foco, and Alexey Shevlyakov for their work on `cstring_view`. The author thanks Giuseppe D'Angelo and Joshua Kriegshauser for the migration data cited in Section 7.
 
 ---
 
@@ -287,3 +325,9 @@ The author thanks Jonathan Wakely, Jan Schultke, Pablo Halpern, and Nevin Liber 
 [10] P3655R3, "cstring_view," Peter Bindels, Hana Dusikova, Jeremy Rifkin, Marco Foco, Alexey Shevlyakov, https://wg21.link/p3655r3
 
 [11] P3566R2, "You shall not pass `char*`," Marco Foco, Joshua Kriegshauser, Alexey Shevlyakov, Giuseppe D'Angelo, https://wg21.link/p3566r2
+
+[12] LEWG poll results for P3566R1, Sofia 2025, https://github.com/cplusplus/papers/issues/2210
+
+[13] N2406, "Mutex, Lock, Condition Variable Rationale," Howard E. Hinnant, https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2007/n2406.html
+
+[14] LEWG poll results for P3655R3, Croydon 2026, https://github.com/cplusplus/papers/issues/2285

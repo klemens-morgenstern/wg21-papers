@@ -32,7 +32,7 @@ This paper is part of the Network Endeavor, a project to bring coroutine-native 
 
 The author developed and maintains [Capy](https://github.com/cppalliance/capy)<sup>[32]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[33]</sup> and believes coroutine-native I/O is the correct foundation for networking in C++.
 
-Coroutine-native I/O and `std::execution` address different domains and should coexist in the C++ standard.
+Coroutine-native I/O and `std::execution` are complementary. Each serves the domain where its design choices pay off.
 
 The cross-library bridges (Section 8) were authored by Klemens Morgenstern. The frame allocator gap was identified by Peter Dimov. Neither is a co-author.
 
@@ -44,11 +44,13 @@ This paper asks for nothing.
 
 The findings documented in this paper and in [P3801R0](https://wg21.link/p3801r0)<sup>[6]</sup>, "Concerns about the design of `std::execution::task`," are not engineering failures. They are structural consequences of making `task` serve two masters. Dietmar K&uuml;hl responded to every concern with professionalism and technical precision, and wrote [P3796R1](https://wg21.link/p3796r1)<sup>[7]</sup>, "Coroutine Task Issues," to collect the issues himself.
 
-**The Environment parameter is not Dietmar's design choice. It is a structural requirement imposed by P2300.**
+**The Environment parameter is not K&uuml;hl's design choice. It is a structural requirement imposed by P2300.**
 
 ### 2.1 The Best Possible P3552R3
 
 Out of respect for K&uuml;hl's work, this paper evaluates only the strongest possible version of his design.
+
+[P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> was plenary-approved for C++26 at Sofia. This paper documents a structural property of the approved design.
 
 [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> is underspecified in several areas. The `Environment` parameter lacks a default. The allocator delivery timing is being addressed in [P3980R0](https://wg21.link/p3980r0)<sup>[8]</sup>, "Task's Allocator Use." The symmetric transfer gap is acknowledged in [P3796R1](https://wg21.link/p3796r1)<sup>[7]</sup> and [P3801R0](https://wg21.link/p3801r0)<sup>[6]</sup>. The author has contributed fixes to some of these gaps directly.
 
@@ -60,7 +62,7 @@ Three topics are off-limits. Allocator timing - how and when the frame allocator
 
 ## 3. The Claim
 
-A standard task type provides a lingua franca. It eliminates pairwise bridges. It gives the ecosystem a common type that every library can accept and return. [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> Section 3 states: "The `task` coroutine provided by the standard library may not always fit user's needs." SG1 discussion notes on [P1056R1](https://wg21.link/p1056r1)<sup>[34]</sup>, "Add lazy coroutine (coroutine task) type," record: "There can be more than one `task` type for different needs."
+A standard task type provides a lingua franca. It eliminates pairwise bridges. It gives the ecosystem a common type that every library can accept and return. [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> Section 3 states: "The `task` coroutine provided by the standard library may not always fit user's needs." SG1 discussion notes on [P1056R1](https://wg21.link/p1056r1)<sup>[34]</sup>, "Add lazy coroutine (coroutine task) type," record (reproduced in [P3552R0](https://wg21.link/p3552r0)<sup>[1]</sup>): "There can be more than one `task` type for different needs."
 
 The claim is that `std::execution::task` serves as that lingua franca. This paper stress-tests that claim.
 
@@ -299,7 +301,7 @@ The coroutine mechanism was designed so that environment diversity lives in awai
 
 ## 8. The Ecosystem
 
-Nine coroutine libraries are surveyed below. Asio is the most widely deployed C++ async library; the standard proposal carries normative weight. The convergence argument is not about counting libraries - it is about independent design decisions. Seven independent teams, solving different problems, all arrived at one parameter. The two that added a second parameter both needed an escape hatch: Asio provides `any_io_executor`; [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> does not.
+Nine coroutine libraries are surveyed below. Asio is the most widely deployed C++ async library; the standard proposal carries normative weight. The convergence argument is not about counting libraries - it is about independent design decisions. Five independent teams - plus the author's Capy and Morgenstern's Cobalt - all arrived at one parameter. The two that added a second parameter both needed an escape hatch: Asio provides `any_io_executor`; [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> does not.
 
 | Library       | Declaration                                                           | Params | Source                          |
 | ------------- | --------------------------------------------------------------------- | :----: | ------------------------------- |
@@ -364,6 +366,8 @@ Any type satisfying the concept works. The task type remains `task<T>` - one par
 
 The concept constrains the awaitable, not the task type. Any task type whose promise propagates `io_env` can `co_await` any `IoAwaitable` - N task types plus M awaitables equals N+M implementations. The N+M property holds because the concept does not name the task type.
 
+The standard queries that P2300R10 propagates through environments have natural homes in this model. The scheduler and stop token reach the awaitable through `await_transform`, which passes the promise's state into the awaitable's `await_suspend` - exactly what `IoAwaitable`'s signature demonstrates. The allocator reaches the coroutine frame through `promise_type::operator new`, which the compiler already calls with the coroutine's parameters. No Environment template parameter is needed for any of them. The detailed mapping is in [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup>.
+
 Bolas explained the role of `await_transform`<sup>[15]</sup>:
 
 > "To declare the existence of such a function is to declare that your promise *cannot work* unless it instruments the awaitable... It is also useful for being able to actively shut off specific awaitables, or to only *allow* the use of specific awaitables."
@@ -396,7 +400,7 @@ Concept-level incompatibility still exists. A promise that does not provide `awa
 
 ## 11. Conclusion
 
-The `Environment` parameter in [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> creates a structural risk to the task type diversity that C++20 coroutines were designed to enable. The risk is documented by the specification (the open query set, Section 4), by the reference implementation (NVIDIA's custom queries, Section 5.3), by the only production precedent (Asio, Section 6), and by `task`'s own author (Section 3). Two models, each correct for its domain, is a stronger standard than one model asked to serve both.
+The `Environment` parameter in [P3552R3](https://wg21.link/p3552r3)<sup>[1]</sup> creates a structural risk to the task type diversity that C++20 coroutines were designed to enable. The risk is documented by the specification (the open query set, Section 4), by the reference implementation (NVIDIA's custom queries, Section 5.3), by the only production precedent (Asio, Section 6), and by `task`'s own author (Section 3). Two complementary models - each contributing what the other cannot - make a stronger standard than one model asked to serve both.
 
 ---
 
@@ -422,7 +426,7 @@ The author thanks Gor Nishanov for the coroutine model's explicit support for ta
 10. [P4091R0](https://isocpp.org/files/papers/P4091R0.pdf) - "Two Error Models" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4091R0.pdf
 11. [P4092R0](https://isocpp.org/files/papers/P4092R0.pdf) - "Consuming Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4092R0.pdf
 12. [P4093R0](https://isocpp.org/files/papers/P4093R0.pdf) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://isocpp.org/files/papers/P4093R0.pdf
-13. [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4088R0.pdf
+13. [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) - "What C++20 Coroutines Already Buy The Standard" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4088R0.pdf
 
 ### StackOverflow and GitHub
 

@@ -28,11 +28,11 @@ This paper assembles the findings of five companion papers into a single causal 
 
 The author provides information and serves at the pleasure of the committee.
 
-This paper is part of the Network Endeavor, a project to bring coroutine-native byte-oriented I/O to C++.
+This paper is part of the [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)), a project to bring coroutine-native I/O to C++.
 
 The author developed and maintains [Capy](https://github.com/cppalliance/capy)<sup>[7]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup> and believes coroutine-native I/O is the correct foundation for networking in C++.
 
-Coroutine-native I/O and `std::execution` address different domains and should coexist in the C++ standard.
+Coroutine-native I/O and `std::execution` are complementary. Each serves the domain where its design choices pay off.
 
 This paper examines the published record. That effort requires re-examining consequential papers, including papers written by people the author respects.
 
@@ -50,7 +50,7 @@ This paper asks for nothing.
 | 2021      | Poll: sender/receiver "a good basis... including networking" - consensus in favor                   | P2300 deployments at Facebook, NVIDIA, Bloomberg                                                                | Deployments are for GPU dispatch, thread pools, and infrastructure. No sender-based networking deployment. No prototype. One hypothetical example.  | [P4097R0](https://wg21.link/p4097r0)<sup>[4]</sup>          |
 | 2014-2026 | Twenty claims shaped the trajectory; evidence documented where it exists                            | Various                                                                                                         | Evidence concentrated in GPU/infrastructure domains. Networking evidence column empty for most claims.                                              | [P4098R0](https://wg21.link/p4098r0)<sup>[5]</sup>          |
 
-Each decision was locally reasonable. Each was made by experienced practitioners under real constraints. No decision was careless. The record is now complete.
+Each decision was locally reasonable, made by experienced practitioners under real constraints. The published record surveyed in this series is now assembled.
 
 ---
 
@@ -58,27 +58,27 @@ Each decision was locally reasonable. Each was made by experienced practitioners
 
 [P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup>, "std::execution," is a genuine achievement. The sender/receiver model provides structured concurrency, sender composition, completion signatures as type-level contracts, and a customization point model that enables heterogeneous dispatch. [P2470R0](https://wg21.link/p2470r0)<sup>[9]</sup> documented deployments at Facebook ("monthly users number in the billions"), NVIDIA ("fully invested in P2300... we plan to ship in production"), and Bloomberg (experimentation). GPU dispatch, infrastructure, HPC - the domains where compile-time work graphs, zero-allocation pipelines, and heterogeneous composition deliver their full value.
 
-The people who built this - Eric Niebler, Kirk Shoop, Lewis Baker, Lee Howes, Micha&lstrok; Dominiak, and their collaborators - identified genuine structural problems in the executor concept and proposed a design that solved them. [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup> documented real deficiencies in `execute(F&&)` under the work framing. The sender/receiver model addressed all four. The committee adopted it. It shipped.
+The people who built this - Eric Niebler, Kirk Shoop, Lewis Baker, Lee Howes, Micha&lstrok; Dominiak, and their collaborators - perceived structural problems in the executor concept and proposed a design that solved them. [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup> documented gaps in `execute(F&&)` under the work framing. The sender/receiver model adopted by the committee addressed all four. It shipped.
 
-The unification effort that preceded P2300 - [P0443](https://wg21.link/p0443)<sup>[11]</sup>, more than 100 papers, organizations spanning Google, NVIDIA, Sandia, Codeplay, Facebook, Microsoft, and RedHat - was a sustained, genuine effort to find common ground. The breadth of participation was extraordinary. The compromise was real.
+The unification effort that preceded P2300 - [P0443](https://wg21.link/p0443)<sup>[11]</sup>, more than 100 papers, organizations spanning Google, NVIDIA, Sandia, Codeplay, Facebook, Microsoft, and RedHat - was a sustained effort to find common ground. The breadth of participation was extraordinary. The compromise was real.
 
-These are facts. This series documents them alongside the facts about what was not examined. Both belong in the record.
+These are facts. This series documents them alongside what was not examined.
 
 ---
 
 ## 4. What Is Now Available
 
-The following capabilities exist in 2026 that did not exist when the decisions in Section 2 were made.
+None of the following existed when the decisions in Section 2 were made.
 
 **C++20 coroutines** were ratified in 2020. They did not exist in 2014 when the unification decision was made, or in 2019 when [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup> diagnosed the basis operation. The coroutine executor concept constrains the handle type to `coroutine_handle<>`, restoring the type constraint that the rename from `dispatch`/`post`/`defer` to `execute(F&&)` removed.
 
-**The coroutine executor concept** was published in [P4003R0](https://wg21.link/p4003r0)<sup>[12]</sup> (2026). It provides `dispatch` and `post` - continuation-scheduling primitives with a typed handle. The four deficiencies [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup> identified do not arise under this concept ([P4095R0](https://wg21.link/p4095r0)<sup>[2]</sup> Section 4).
+**The coroutine executor concept** ([P4003R0](https://wg21.link/p4003r0)<sup>[12]</sup>, 2026) provides `dispatch` and `post` - continuation-scheduling primitives with a typed handle. The four deficiencies [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup> identified do not arise under this concept ([P4095R0](https://wg21.link/p4095r0)<sup>[2]</sup> Section 4).
 
 **The two-framing distinction** - work framing vs. continuation framing - was documented in [P4094R0](https://wg21.link/p4094r0)<sup>[1]</sup> Section 6. The continuation framing was the original framing ([P0113R0](https://wg21.link/p0113r0)<sup>[13]</sup>, 2015). The work framing replaced it through two stages of simplification. No published paper in the causal chain discussed the shift. The distinction is now available for the committee to apply.
 
-**The rationale-loss mechanism** was documented in [P4094R0](https://wg21.link/p4094r0)<sup>[1]</sup> Section 6.3. API surfaces transfer between papers; design rationale does not, unless someone actively carries it forward. The continuation framing was carried by institutional knowledge rather than by the type system. When the property hint was removed by authors who did not carry that knowledge forward, the framing dropped out. This is a structural property of multi-author standardization, not a criticism of any individual.
+**The rationale-loss mechanism** ([P4094R0](https://wg21.link/p4094r0)<sup>[1]</sup> Section 6.3): API surfaces transfer between papers; design rationale does not, unless someone actively carries it forward. The continuation framing was carried by institutional knowledge rather than by the type system. When the property hint was removed by authors who did not carry that knowledge forward, the framing dropped out. This is a structural property of multi-author standardization.
 
-**Interop bridges** between the coroutine model and the sender model were published in [P4092R0](https://wg21.link/p4092r0)<sup>[14]</sup> and [P4093R0](https://wg21.link/p4093r0)<sup>[15]</sup>. The two models can coexist and interoperate.
+**Interop bridges** ([P4092R0](https://wg21.link/p4092r0)<sup>[14]</sup>, [P4093R0](https://wg21.link/p4093r0)<sup>[15]</sup>): the two models coexist and interoperate.
 
 **`std::execution::task`** ([P3552R3](https://wg21.link/p3552r3)<sup>[16]</sup>) is simultaneously a coroutine and a sender. The committee has already voted to ship a type that fuses two async models into one. The price of two models has been paid.
 
@@ -110,7 +110,7 @@ struct read_operation
 
 `coroutine_handle<>` erases the caller. `connect(sender, receiver)` stamps the caller into the operation state. The first choice produces type-erased streams, separate compilation, and ABI stability - properties that have been difficult to achieve in twenty years of networking attempts. The second produces full pipeline visibility, zero-allocation composition, and compile-time work graphs - the properties that make `std::execution` valuable for GPU dispatch, heterogeneous execution, and infrastructure. Neither model can acquire the other's properties without surrendering its own. The technical analysis is in [P4088R0](https://wg21.link/p4088r0)<sup>[17]</sup>.
 
-The committee has already voted to ship `std::execution::task` ([P3552R3](https://wg21.link/p3552r3)<sup>[16]</sup>), a type that is simultaneously a coroutine and a sender. The price of two async models has been paid. The question is whether both models should carry I/O facilities that exploit their respective strengths.
+`std::execution::task` ([P3552R3](https://wg21.link/p3552r3)<sup>[16]</sup>) already fuses both models. The question is whether I/O facilities should also exploit each model's strengths independently.
 
 ---
 
@@ -136,7 +136,7 @@ A: Section 1 discloses this. The causal chain in Section 2 is assembled from the
 
 ## Acknowledgments
 
-The author thanks Chris Kohlhoff for the executor model that started the journey, for twenty years of Boost.Asio deployment, for the candid retrospective in [P1791R0](https://wg21.link/p1791r0)<sup>[18]</sup>, and for [N3747](https://wg21.link/n3747)<sup>[19]</sup>'s universal async model; Eric Niebler, Kirk Shoop, Lewis Baker, and Lee Howes for the sender/receiver model, for [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup>'s genuine structural insights, and for [P2300](https://wg21.link/p2300)<sup>[8]</sup>; Micha&lstrok; Dominiak for the editorial work that brought [P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup> to adoption; Jared Hoberock, Michael Garland, and Chris Mysen for [P0443](https://wg21.link/p0443)<sup>[11]</sup>, [P0761R2](https://wg21.link/p0761r2)<sup>[20]</sup>, and years of compromise in pursuit of a unified model; Ville Voutilainen for [P2464R0](https://wg21.link/p2464r0)<sup>[21]</sup>'s analytical framework, which provided the evaluation criteria this series applies; Bryce Adelstein Lelbach for the published poll outcomes in [P2453R0](https://wg21.link/p2453r0)<sup>[22]</sup> and [P2400R2](https://wg21.link/p2400r2)<sup>[23]</sup> that made this analysis possible; Dietmar K&uuml;hl for [P2762R2](https://wg21.link/p2762r2)<sup>[24]</sup> and `beman::execution`; Detlef Vollmann for [P1256R0](https://wg21.link/p1256r0)<sup>[25]</sup>; Jonathan M&uuml;ller for [P3801R0](https://wg21.link/p3801r0)<sup>[26]</sup>; Peter Dimov for technical corrections on earlier drafts; Steve Gerbino and Mungo Gill for [Capy](https://github.com/cppalliance/capy)<sup>[7]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup> implementation work; Klemens Morgenstern for Boost.Cobalt and the cross-library bridge examples; Jamie Allsop and Richard Hodges for co-authoring [P2469R0](https://wg21.link/p2469r0)<sup>[27]</sup>; and the national body members who raised concerns at St. Louis.
+The author thanks Chris Kohlhoff for the executor model that started the journey, for twenty years of Boost.Asio deployment, for the candid retrospective in [P1791R0](https://wg21.link/p1791r0)<sup>[18]</sup>, and for [N3747](https://wg21.link/n3747)<sup>[19]</sup>'s universal async model; Eric Niebler, Kirk Shoop, Lewis Baker, and Lee Howes for the sender/receiver model, for [P1525R0](https://wg21.link/p1525r0)<sup>[10]</sup>'s structural insights, and for [P2300](https://wg21.link/p2300)<sup>[8]</sup>; Micha&lstrok; Dominiak for the editorial work that brought [P2300R10](https://wg21.link/p2300r10)<sup>[8]</sup> to adoption; Jared Hoberock, Michael Garland, and Chris Mysen for [P0443](https://wg21.link/p0443)<sup>[11]</sup>, [P0761R2](https://wg21.link/p0761r2)<sup>[20]</sup>, and years of compromise in pursuit of a unified model; Ville Voutilainen for [P2464R0](https://wg21.link/p2464r0)<sup>[21]</sup>'s analytical framework, which provided the evaluation criteria this series applies; Bryce Adelstein Lelbach for the published poll outcomes in [P2453R0](https://wg21.link/p2453r0)<sup>[22]</sup> and [P2400R2](https://wg21.link/p2400r2)<sup>[23]</sup> that made this analysis possible; Dietmar K&uuml;hl for [P2762R2](https://wg21.link/p2762r2)<sup>[24]</sup> and `beman::execution`; Detlef Vollmann for [P1256R0](https://wg21.link/p1256r0)<sup>[25]</sup>; Jonathan M&uuml;ller for [P3801R0](https://wg21.link/p3801r0)<sup>[26]</sup>; Peter Dimov for technical corrections on earlier drafts; Steve Gerbino and Mungo Gill for [Capy](https://github.com/cppalliance/capy)<sup>[7]</sup> and [Corosio](https://github.com/cppalliance/corosio)<sup>[6]</sup> implementation work; Klemens Morgenstern for Boost.Cobalt and the cross-library bridge examples; Jamie Allsop and Richard Hodges for co-authoring [P2469R0](https://wg21.link/p2469r0)<sup>[27]</sup>; and the national body members who raised concerns at St. Louis.
 
 The effort to bring async programming to C++ has been genuine, sustained, and conducted by people the author respects. This series documents the record. The committee will decide what to do with it.
 
@@ -176,7 +176,7 @@ The effort to bring async programming to C++ has been genuine, sustained, and co
 
 16. [P3552R3](https://wg21.link/p3552r3) - "Add a Coroutine Task Type" (Dietmar K&uuml;hl, Maikel Nadolski, 2025). https://wg21.link/p3552r3
 
-17. [P4088R0](https://wg21.link/p4088r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4088r0
+17. [P4088R0](https://wg21.link/p4088r0) - "What C++20 Coroutines Already Buy The Standard" (Vinnie Falco, 2026). https://wg21.link/p4088r0
 
 18. [P1791R0](https://wg21.link/p1791r0) - "Evolution of the P0443 Unified Executors Proposal to accommodate new requirements" (Christopher Kohlhoff, Jamie Allsop, 2019). https://wg21.link/p1791r0
 

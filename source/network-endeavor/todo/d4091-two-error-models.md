@@ -456,7 +456,7 @@ Any quoted participant who wishes a passage retracted or revised may contact the
 
 17. Ian Petersen, four sender implementations of channel dispatch, March 2026 (accessed 2026-03-15). https://godbolt.org/z/7W51hYE7c
 
-18. [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4088R0.pdf
+18. [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) - "What C++20 Coroutines Already Buy The Standard" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4088R0.pdf
 
 19. [P1525R1](https://wg21.link/p1525r1) - "One-Way execute is a Poor Basis Operation" (Eric Niebler, Kirk Shoop, Lewis Baker, Lee Howes et al., 2020). https://wg21.link/p1525r1
 

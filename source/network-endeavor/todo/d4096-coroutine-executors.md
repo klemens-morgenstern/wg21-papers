@@ -50,7 +50,7 @@ The research that produced [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> is
 - The Networking TS trades a single async model for support of every continuation type.
 - [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> trades every continuation type for coroutines only.
 
-Each is a valid choice with real benefits and real costs. The coroutines-only trade-off is the one the authors believe is correct for networking in C++. When the completion mechanism is fixed to `coroutine_handle<>`, the operation state becomes concrete, the stream becomes type-erasable without per-operation allocation, the I/O library compiles once, and the ABI stabilizes across transport changes. None of these properties are achievable when the operation state must be parameterized on an arbitrary completion handler type. [P4088R0](https://wg21.link/p4088r0)<sup>[16]</sup>, "The Case for Coroutines," traces the full causal chain. The generality that the completion token provides is genuine, but the cost is that it forecloses the optimizations that networking in C++ has needed for twenty years. Constraining to coroutines is the trade-off that unlocks them.
+Each is a valid choice with real benefits and real costs. The coroutines-only trade-off is the one the authors believe is correct for networking in C++. When the completion mechanism is fixed to `coroutine_handle<>`, the operation state becomes concrete, the stream becomes type-erasable without per-operation allocation, the I/O library compiles once, and the ABI stabilizes across transport changes. None of these properties are achievable when the operation state must be parameterized on an arbitrary completion handler type. [P4088R0](https://wg21.link/p4088r0)<sup>[16]</sup> traces the full causal chain. The generality that the completion token provides is genuine, but the cost is that it forecloses the optimizations that networking in C++ has needed for twenty years. Constraining to coroutines is the trade-off that unlocks them.
 
 This paper asks for nothing.
 
@@ -338,6 +338,6 @@ The authors thank Peter Dimov for identifying that [P0443R14](https://wg21.link/
 
 15. [P2469R0](https://wg21.link/p2469r0) - "Response to P2464 - Ruminations on networking and executors" (Vinnie Falco, Christopher Kohlhoff, 2021). https://wg21.link/p2469r0
 
-16. [P4088R0](https://wg21.link/p4088r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4088r0
+16. [P4088R0](https://wg21.link/p4088r0) - "What C++20 Coroutines Already Buy The Standard" (Vinnie Falco, 2026). https://wg21.link/p4088r0
 
 17. [P4100R0](https://wg21.link/p4100r0) - "The Network Endeavor: Coroutine-Native I/O for C++29" (Vinnie Falco, Steve Gerbino, Michael Vandeberg, Mungo Gill, Mohammad Nejati, 2026). https://wg21.link/p4100r0

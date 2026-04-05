@@ -171,7 +171,7 @@ The following papers are authored or co-authored by the author of this paper. Th
 | [P4091R0](https://wg21.link/p4091r0)<sup>[17]</sup>            | Two Error Models                                     | The sender error channel vs. `error_code` for I/O                                  |
 | [P4092R0](https://wg21.link/p4092r0)<sup>[18]</sup>            | Consuming Senders from Coroutine-Native Code         | Coroutine-to-sender interop bridge                                                  |
 | [P4093R0](https://wg21.link/p4093r0)<sup>[19]</sup>            | Producing Senders from Coroutine-Native Code         | Sender-to-coroutine interop bridge                                                  |
-| [P4088R0](https://wg21.link/p4088r0)<sup>[20]</sup>            | The Case for Coroutines                              | The argument for coroutine-native I/O as the foundation for networking              |
+| [P4088R0](https://wg21.link/p4088r0)<sup>[20]</sup>            | What C++20 Coroutines Already Buy The Standard                              | The argument for coroutine-native I/O as the foundation for networking              |
 | [P2583R3](https://wg21.link/p2583r3)<sup>[21]</sup>            | Symmetric Transfer and Sender Composition            | Symmetric transfer gap in sender task types                                         |
 
 The author's position on coroutine-native I/O is a consequence of the findings documented in this series, not a premise.
@@ -252,7 +252,7 @@ The author thanks Bryce Adelstein Lelbach, Fabio Fracassi, and Ben Craig for the
 
 19. [P4093R0](https://wg21.link/p4093r0) - "Producing Senders from Coroutine-Native Code" (Vinnie Falco, Steve Gerbino, 2026). https://wg21.link/p4093r0
 
-20. [P4088R0](https://wg21.link/p4088r0) - "The Case for Coroutines" (Vinnie Falco, 2026). https://wg21.link/p4088r0
+20. [P4088R0](https://wg21.link/p4088r0) - "What C++20 Coroutines Already Buy The Standard" (Vinnie Falco, 2026). https://wg21.link/p4088r0
 
 21. [P2583R3](https://wg21.link/p2583r3) - "Symmetric Transfer and Sender Composition" (Vinnie Falco, 2026). https://wg21.link/p2583r3
 

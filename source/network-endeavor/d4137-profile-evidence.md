@@ -1,5 +1,5 @@
 ---
-title: "PAVE: Profile Analysis and Verification Evidence"
+title: "Info: Profile Analysis and Verification Evidence (PAVE)"
 document: P4137R0
 date: 2026-03-15
 reply-to:
@@ -9,7 +9,7 @@ audience: SG12, SG23, EWG
 
 ## Abstract
 
-Nobody has measured what the type-safety profile actually covers.
+The paper offers a way to measure what the type-safety profile actually covers.
 
 [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> defines the rules. It does not measure how much of a real codebase those rules can verify. This paper proposes PAVE - Profile Analysis and Verification Evidence - a three-phase methodology that answers the question. Phase 1 classifies every function against the profile's rules using AST predicates. Phase 2 distinguishes true positives from false positives. Phase 3 infers annotations that expand the verifiable subset. The tools exist today.
 
@@ -44,7 +44,7 @@ The definitions are clear. The enforcement rules are enumerable. The paper descr
 
 What the paper does not provide is a measurement. How much of a real codebase falls in the verifiable subset? [P3970R0](https://wg21.link/p3970r0)<sup>[8]</sup>, "Profiles and Safety: a call to action," urges implementers to coordinate and experiment. The paper's own design decisions answer the question partially - by exclusion.
 
-### 1.1 Trusted Constructors and Destructors
+### 2.1 Trusted Constructors and Destructors
 
 [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> Section 2.3:
 
@@ -52,7 +52,7 @@ What the paper does not provide is a measurement. How much of a real codebase fa
 
 Every constructor and destructor is trusted. The profile does not verify that a constructor initializes all resources correctly or that a destructor releases them. The guarantee that "no resource is leaked" depends on constructors and destructors being correct, but the profile does not check that they are.
 
-### 1.2 Deferred Concurrency
+### 2.2 Deferred Concurrency
 
 [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> Section 4:
 
@@ -60,7 +60,7 @@ Every constructor and destructor is trusted. The profile does not verify that a 
 
 The type-safety guarantee holds only in single-threaded code or code that has been independently verified to be free of data races. In any multithreaded program, the guarantee carries an asterisk.
 
-### 1.3 Conservative Invalidation Analysis
+### 2.3 Conservative Invalidation Analysis
 
 [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> Section 2.6 proposes a rule for portability:
 
@@ -68,7 +68,7 @@ The type-safety guarantee holds only in single-threaded code or code that has be
 
 The profile treats conditional use of banned constructs as unconditional. A function that returns a local pointer on one branch and a static pointer on the other is rejected even if the local-pointer branch is unreachable. A function that calls an invalidating function inside an `if` is treated as if the call always happens. The rule is sound - it produces no false negatives. It also rejects valid code whenever control flow is non-trivial. The invalidation analysis builds on the lifetime safety work in [P1179R1](https://wg21.link/p1179r1)<sup>[4]</sup>, "Lifetime safety: Preventing common dangling," and the dangling-pointer elimination described in [P3346R0](https://wg21.link/p3346r0)<sup>[7]</sup>, "Profile invalidation - eliminating dangling pointers."
 
-### 1.4 Abstraction Implementations Are Excluded
+### 2.4 Abstraction Implementations Are Excluded
 
 [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> Section 1:
 
@@ -76,11 +76,13 @@ The profile treats conditional use of banned constructs as unconditional. A func
 
 The implementations of `vector`, `unique_ptr`, `string`, allocators, smart pointers, and every container in the standard library require pointer arithmetic, casts, or manual memory management. The profile cannot verify them. They must be marked as trusted and excluded from the verifiable subset.
 
-### 1.5 The Question
+### 2.5 The Question
 
 Each exclusion is individually reasonable. Taken together, they raise a question the committee should answer before standardizing the guarantee: after excluding trusted constructors, trusted destructors, trusted abstraction implementations, all multithreaded code, and all code with non-trivial control flow around pointers - what percentage of a real codebase remains in the verifiable subset?
 
 The answer might be large. The answer might be small. The answer is unknown. PAVE provides a methodology to find it.
+
+The measurement is relevant even for code written from scratch under the profile. New code calls into standard library implementations, abstraction layers, and third-party libraries that predate the profile. The coverage measurement on the library layer tells you how much of the actual call stack is verified - including the code your profile-compliant function calls into. If the verifiable subset excludes the implementations that new code depends on, the guarantee has a hole regardless of when the calling code was written.
 
 ---
 
@@ -143,7 +145,7 @@ For every function classified "rejected," a deeper analysis determines whether t
 
 The structural false positive category is the most important finding. It measures the irreducible gap between what the profile promises and what it can deliver. True positives validate the profile. Annotatable false positives measure the value of richer annotation vocabularies. Structural false positives measure the limits of the approach.
 
-### 4.1 LLM-Assisted Triage
+### 5.1 LLM-Assisted Triage
 
 An LLM reading the function body can perform the initial classification. The LLM has semantic understanding that the AST walk lacks - it can reason about whether pointer arithmetic is bounded, whether a cast preserves type safety, whether aliasing is benign. The LLM classification is not a proof. It is a triage step that generates hypotheses for human review.
 
@@ -161,7 +163,7 @@ The LLM does not replace the formal guarantee. It expands the code surface that 
 
 For every function classified as "false positive, annotatable" in Phase 2, the annotation that would resolve the rejection can be generated.
 
-`[[not_invalidating]]` is the primary candidate. [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> Section 2.6 introduces it as an optimization for the invalidation analysis:
+`[[not_invalidating]]` is currently the only compiler-verifiable annotation that [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> defines. It applies to one rejection category: invalidation with aliasing. Functions rejected for pointer arithmetic, casts, or union access resolve as either true positives or structural false positives - no annotation rescues them. The annotation dividend therefore measures a narrow but real lever. [P3984R0](https://wg21.link/p3984r0)<sup>[1]</sup> Section 2.6 introduces it as an optimization for the invalidation analysis:
 
 > "Add a [[not_invalidating]] attribute to be used to speed up analysis by marking non-const functions and functions that take non-const pointer arguments that don't invalidate."
 
@@ -209,25 +211,25 @@ These checks do not produce the aggregate classification that PAVE requires, but
 
 **Phase 2** requires an LLM with a rubric. The rubric is the three-way classification defined in Section 4. No specialized model is needed - any LLM capable of reading C++ function bodies and reasoning about pointer safety can perform the triage. Human review validates the output.
 
-**Phase 3** is a direct extension of Phase 2. The LLM generates annotations. The compiler verifies them.
+**Phase 3** is a direct extension of Phase 2. The LLM generates candidate annotations. When a profile-aware compiler is available, it verifies them mechanically. Today the measurement - counting annotatable functions and computing the annotation dividend - can be performed by the LLM triage step without compiler cooperation.
 
-No compiler modification is required. No new language features are needed. The methodology can be executed today, on any codebase that compiles with Clang.
+Phases 1 and 2 require no compiler modification and no new language features. They can be executed today, on any codebase that compiles with Clang. Phase 3's verification step benefits from compiler support for `[[not_invalidating]]`, which no shipping compiler yet provides; the measurement itself does not depend on it.
 
 ---
 
-## 9. Recommendation
+## 9. Availability
 
-The committee should require empirical coverage data before advancing profiles to the IS. The methodology described in this paper provides a reproducible way to generate that data.
+If empirical coverage data is desired before advancing profiles to the IS, the methodology described in this paper provides a reproducible way to generate it.
 
-Specifically:
+A minimal execution:
 
 - Run PAVE Phase 1 on at least one substantial, publicly available C++ codebase. Report the clean/rejected/trusted distribution.
 - Run PAVE Phase 2 on a stratified sample of the rejected functions. Report the true positive / annotatable false positive / structural false positive distribution.
 - Run PAVE Phase 3 on the annotatable false positives. Report the annotation dividend.
 
-The results will either confirm that the type-safety profile covers a meaningful fraction of real code - in which case the committee can advance it with evidence - or reveal that the coverage is narrower than expected - in which case the committee can adjust the design, the expectations, or both.
+The results will either confirm that the type-safety profile covers a meaningful fraction of real code or reveal that the coverage is narrower than expected. Either outcome informs the committee's decision.
 
-The authors encourage implementers, profile proponents, and independent researchers to execute the methodology and publish results. The profiles effort deserves evidence commensurate with its ambition.
+Implementers, profile proponents, and independent researchers are welcome to execute the methodology and publish results.
 
 ---
 

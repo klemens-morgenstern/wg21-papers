@@ -1,5 +1,5 @@
 ---
-title: "The Network Endeavor: Coroutine-Native I/O for C++29"
+title: "Info: Coroutine-Native I/O for C++29 (The Network Endeavor)"
 document: P4100R0
 date: 2026-03-09
 reply-to:
@@ -12,13 +12,11 @@ reply-to:
 audience: LEWG
 ---
 
-# The Network Endeavor: Coroutine-Native I/O for C++29
-
 ## Abstract
 
-C++ has five language mechanisms that combine into a substrate for I/O. Nobody designed them for that purpose.
+C++ coroutines have five language mechanisms that combine into the ideal substrate for coroutine-native I/O.
 
-Two libraries - Capy and Corosio - use those mechanisms directly to deliver type-erased streams, separate compilation, and ABI stability on C++20 today. Three independent Boost libraries are building on them. An eleven-paper series, split into two stages, traces the path from published implementation to standard vocabulary. Stage One is four papers of pure C++20 abstractions with no platform dependency. Stage Two is seven papers of platform I/O. How those stages compose, what each paper delivers independently, and where the boundaries of a coroutine-native design lie are the subjects of this paper.
+Two libraries - Capy and Corosio - use those mechanisms directly to deliver type-erased streams, separate compilation, and ABI stability on C++20 today. Three independent Boost libraries are building on them. A multi-paper series, split into two stages, traces the path from published implementation to standard vocabulary. Stage One is a set of pure C++20 abstractions with no platform dependency. Stage Two is platform I/O. How those stages compose, what each paper delivers independently, and where the boundaries of a coroutine-native design lie are the subjects of this paper.
 
 ---
 
@@ -38,9 +36,7 @@ This paper is part of the Network Endeavor, a project to bring coroutine-native 
 
 The author developed and maintains [Capy](https://github.com/cppalliance/capy) and [Corosio](https://github.com/cppalliance/corosio) and believes coroutine-native I/O is the correct foundation for networking in C++.
 
-Coroutine-native I/O and `std::execution` address different domains and should coexist in the C++ standard.
-
-This paper documents the roadmap for bringing that work to the standard. The authors have a stake in the outcome. This paper is one of a series. [P4088R0](https://wg21.link/p4088r0)<sup>[6]</sup> identifies the five coroutine properties that combine into a substrate for I/O. [P4090R0](https://wg21.link/p4090r0)<sup>[7]</sup> constructs a side-by-side comparison of sender-based and coroutine-native echo servers. [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> proposes the IoAwaitable protocol. This paper documents the roadmap that connects those findings to a standardization path.
+Coroutine-native I/O and `std::execution` are complementary. Each serves the domain where its design choices pay off.
 
 This paper asks for nothing.
 
@@ -135,11 +131,11 @@ Pure C++20. No language extensions. No compiler intrinsics. Works with every con
 
 ### 4.5 Production deployment
 
-Cross-platform: IOCP, epoll, kqueue. Three independent Boost library adopters (MySQL, Redis, Postgres). One institutional deployment in production trading infrastructure ([P4125R0](https://wg21.link/p4125r0)<sup>[8]</sup>).
+Cross-platform: IOCP, epoll, kqueue. Three independent Boost library adopters (MySQL, Redis, Postgres). One institutional evaluation in production trading infrastructure ([P4125R0](https://wg21.link/p4125r0)<sup>[8]</sup>).
 
 ### 4.6 Modularity
 
-Each paper proposes the narrowest abstraction that delivers value on its own. Papers 1-4 have no platform dependency. Paper 2 (buffer concepts) has no async dependency. Each paper depends only on what came before. No paper requires unfinished work by a different author.
+Each paper proposes the narrowest abstraction that delivers value on its own. Stage One papers have no platform dependency. Paper 4 (buffer concepts) has no async dependency. Each paper depends only on what came before. No paper requires unfinished work by a different author.
 
 ### 4.7 Language-library co-design
 
@@ -171,7 +167,7 @@ The shift from C++11 to C++20 changes what is possible. Asio's named requirement
 
 ### 5.1 The Asio Adapter
 
-Paper 1 ([P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup>) delivers immediate value to existing Asio users. A small adapter wraps any Asio executor to satisfy the `Executor` concept. Asio users get `task<T>` as a drop-in replacement for `asio::awaitable<T>`.
+Papers 1 and 2 deliver immediate value to existing Asio users. A small adapter wraps any Asio executor to satisfy the `Executor` concept. Asio users get `task<T>` as a drop-in replacement for `asio::awaitable<T>`.
 
 Three gains:
 
@@ -231,18 +227,20 @@ We are:
 * Implementors second, and
 * Proposers third.
 
-The series is layered: each paper builds on the last, each is backed by implementation experience, and each delivers value on its own. Two stages mirror the library split. The first four papers correspond to Capy; the remainder correspond to Corosio.
+The series is layered: each paper builds on the last, each is backed by implementation experience, and each delivers value on its own. Two stages mirror the library split. The Stage One papers correspond to Capy; the remainder correspond to Corosio.
 
 ### 7.1 Stage One: Pure C++ Abstractions
 
-| #  | Paper                  | Abstraction                                        |
-| -- | ---------------------- | -------------------------------------------------- |
-| 1  | **Coroutines for I/O** | Coroutine execution protocol, executor model, launch |
-| 2  | **I/O Buffer Ranges**  | Range-based buffer concepts for scatter/gather I/O |
-| 3  | **Stream Concepts**    | Coroutine stream concepts for async byte I/O       |
-| 4  | **Coroutine Runtime**  | Thread pools, strands, structured concurrency      |
+| #  | Paper                      | Abstraction                                              |
+| -- | -------------------------- | -------------------------------------------------------- |
+| 1  | **IoAwaitable Protocol**   | Coroutine execution protocol, executor model             |
+| 2  | **Coroutine Task**         | `task<T>`, launch functions, `thread_pool`, `system_context` |
+| 3  | **Executor Utilities**     | `strand`, `any_executor`                                 |
+| 4  | **I/O Buffer Ranges**      | Range-based buffer concepts for scatter/gather I/O       |
+| 5  | **Stream Concepts**        | Coroutine stream concepts for async byte I/O             |
+| 6  | **Combinators**            | `when_all`, `when_any`                                   |
 
-Pure C++20. No platform code. These four abstractions enable sans-I/O protocols in the ecosystem: HTTP, WebSocket, TLS wrappers.
+Pure C++20. No platform code. These abstractions enable sans-I/O protocols in the ecosystem: HTTP, WebSocket, TLS wrappers.
 
 Stage One alone delivers the vocabulary for the entire async I/O ecosystem. External libraries implement portable, platform-specific I/O in terms of `std::io`. The ecosystem delivers the platform. The standard delivers the vocabulary.
 
@@ -250,15 +248,15 @@ Stage One alone delivers the vocabulary for the entire async I/O ecosystem. Exte
 
 | #  | Paper                  | Abstraction                                        |
 | -- | ---------------------- | -------------------------------------------------- |
-| 5  | **Timers**             | Async timer operations                             |
-| 6  | **Signals**            | Async signal handling                              |
-| 7  | **Files**              | Async file I/O                                     |
-| 8  | **TCP**                | Sockets, acceptors, endpoints, IP addresses        |
-| 9  | **DNS**                | Async name resolution                              |
-| 10 | **UDP**                | Datagram sockets                                   |
-| 11 | **TLS**                | Transport security wrappers                        |
+| 7  | **Timers**             | Async timer operations                             |
+| 8  | **Signals**            | Async signal handling                              |
+| 9  | **Files**              | Async file I/O                                     |
+| 10 | **TCP**                | Sockets, acceptors, endpoints, IP addresses        |
+| 11 | **DNS**                | Async name resolution                              |
+| 12 | **UDP**                | Datagram sockets                                   |
+| 13 | **TLS**                | Transport security wrappers                        |
 
-The first three papers in Stage Two have nothing to do with networking. Seven papers can proceed before the word "socket" appears.
+The first three papers in Stage Two have nothing to do with networking. Many papers can proceed before the word "socket" appears.
 
 ### 7.3 Risk Separation
 
@@ -274,21 +272,45 @@ The ABI stability of Stage One provides the boundary. `any_stream` is the contra
 
 ## 8. The Paper Series
 
-### 8.1 Paper 1: Coroutines for I/O
+### 8.1 Paper 1: IoAwaitable Protocol
 
-[P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> published. Targeting first LEWG review at Brno (June 2026).
+[P4003R1](https://wg21.link/p4003r1)<sup>[2]</sup> published. [P4172R0](https://wg21.link/p4172r0) provides design rationale. Targeting first LEWG review at Brno (June 2026).
 
-The IoAwaitable protocol, executor model, and `task<T>`. Depends on nothing.
+The coroutine execution model for I/O. Depends on nothing.
 
-**Key types.** `Executor` concept (`dispatch`, `post`, `context`), `execution_context` with service registry and frame allocator ownership, `executor_ref` (two-pointer type-erased executor), `io_env` (bundles executor, stop token, frame allocator), `IoAwaitable` concept, `task<T>` (lazy coroutine task, one template parameter), `run()` and `run_async()`.
+**Key types.** `IoAwaitable` concept, `IoRunnable` concept, `Executor` concept (`dispatch`, `post`, `context`), `execution_context` with service registry and frame allocator ownership, `executor_ref` (two-pointer type-erased executor), `io_env` (bundles executor, stop token, frame allocator).
 
 **What coroutines provide.** The IoAwaitable protocol solves frame allocator timing through forward propagation via TLS. The frame allocator is available before `operator new` executes. No language extensions required. 3.1x throughput improvement using recycling allocators on MSVC ([P4007R0](https://wg21.link/p4007r0)<sup>[3]</sup> Section 5).
 
 **Shipping status.** Capy implements the full protocol. Corosio builds a complete networking stack on it. Shipping today on Windows, Linux, and macOS.
 
-**Standalone value.** The Asio adapter (Section 5.1). Asio users get `task<T>` with frame allocator propagation. Business logic drops the Asio header dependency. Compile times improve. The I/O backend becomes swappable behind a compilation boundary.
+**Standalone value.** The protocol layer that every subsequent paper builds on. The Asio adapter (Section 5.1) wraps any Asio executor to satisfy the `Executor` concept. The IoAwaitable protocol is the interoperability point: any coroutine library that satisfies it composes with the rest of the series.
 
-### 8.2 Paper 2: I/O Buffer Ranges
+### 8.2 Paper 2: Coroutine Task
+
+The concrete coroutine task type, launch functions, and execution contexts. Depends on Paper 1.
+
+**Key types.** `task<T>` (lazy coroutine task, one template parameter), `run()` (blocks until the task completes), `run_async()` (submits the task for execution), `thread_pool` (multi-threaded execution context), `system_context` (process-wide singleton backed by a `thread_pool`).
+
+**What coroutines provide.** `task<T>` has one template parameter because `coroutine_handle<>` erases the coroutine's type structurally. No allocator parameter, no executor parameter, no scheduler parameter. The IoAwaitable protocol propagates context through `await_suspend` - the task type stays simple. `run()` and `run_async()` bridge synchronous and asynchronous code at the top level.
+
+**Shipping status.** Shipping in Capy. Every Corosio example and test uses `task<T>` with `run()`.
+
+**Standalone value.** After Papers 1 and 2, Asio users get `task<T>` with frame allocator propagation as a drop-in replacement for `asio::awaitable<T>`. Business logic drops the Asio header dependency. The I/O backend becomes swappable behind a compilation boundary (Section 5.1).
+
+### 8.3 Paper 3: Executor Utilities
+
+Serialization and type erasure over any executor. Depends on Paper 1.
+
+**Key types.** `strand<Ex>` (serializes coroutine execution over any executor), `any_executor` (owning type-erased executor).
+
+**What coroutines provide.** `strand` serializes access to shared state without locks. In a coroutine-native model, strands serialize coroutine resumption rather than completion handler dispatch. `any_executor` type-erases any executor behind an owning handle, enabling polymorphic executor storage.
+
+**Shipping status.** Shipping in Capy.
+
+**Standalone value.** `strand` and `any_executor` are general-purpose utilities that work over any `Executor`. They have no I/O dependency and no platform dependency. Any executor-based system benefits from serialization and type erasure.
+
+### 8.4 Paper 4: I/O Buffer Ranges
 
 Buffer vocabulary types for scatter/gather I/O. Depends on nothing. No async dependency. No coroutines. No executor. Pure vocabulary.
 
@@ -302,9 +324,9 @@ Buffer vocabulary types for scatter/gather I/O. Depends on nothing. No async dep
 
 **Standalone value.** Today, every C++ project that does I/O invents its own buffer types. Standard buffer concepts create shared vocabulary: a database driver that accepts `MutableBufferSequence` works with any I/O stack that speaks the same concepts. This paper advances independently of Paper 1 on a parallel track.
 
-### 8.3 Paper 3: Stream Concepts
+### 8.5 Paper 5: Stream Concepts
 
-Coroutine stream concepts for async byte I/O. Depends on Papers 1-2.
+Coroutine stream concepts for async byte I/O. Depends on Papers 1 and 4.
 
 This paper gives C++ ABI-stable I/O.
 
@@ -318,35 +340,35 @@ This paper gives C++ ABI-stable I/O.
 
 **Shipping status.** Shipping in Capy. Corosio's `tcp_socket`, `tls_stream`, and `io_stream` all satisfy `Stream`.
 
-**Standalone value.** Paper 3 completes the bridge to existing I/O ecosystems. After Papers 1-3, an `asio::ip::tcp::socket` becomes an `any_stream` through one adapter in one `.cpp` file. Business logic compiles against the standard. The Asio socket is behind the wrapper. 90% of a networking application's code compiles against `std::io`.
+**Standalone value.** Paper 5 completes the bridge to existing I/O ecosystems. After Papers 1-5, an `asio::ip::tcp::socket` becomes an `any_stream` through one adapter in one `.cpp` file. Business logic compiles against the standard. The Asio socket is behind the wrapper. The bulk of a networking application's code compiles against `std::io`.
 
-### 8.4 Paper 4: Coroutine Runtime
+### 8.6 Paper 6: Combinators
 
-Thread pools, strands, and structured concurrency for coroutines. Depends on Paper 1.
+Structured concurrency primitives for coroutine-native code. Depends on Paper 2.
 
-**Key types.** `thread_pool` (multi-threaded execution context), `strand<Ex>` (serializes coroutine execution over any executor), `any_executor` (owning type-erased executor), `system_context` (process-wide singleton), `when_all(awaitables...)`, `when_any(awaitables...)`.
+**Key types.** `when_all(awaitables...)` (awaits all; returns when every awaitable completes), `when_any(awaitables...)` (awaits any; returns when the first awaitable completes and cancels the rest).
 
 **Shipping status.** Shipping in Capy. `when_all` and `when_any` used in Corosio's `tcp_server` for concurrent accept loops.
 
-**Standalone value.** Paper 4 completes Stage One. After Papers 1-4, a user can write a full concurrent networking application against the standard: `task<>` coroutines accepting `any_stream&`, standard `DynamicBuffer` for parsing, `thread_pool` for execution, `strand` for serialization, `when_all`/`when_any` for concurrency. 90% standard. 10% behind adapters. When Stage Two ships, the adapters become unnecessary.
+**Standalone value.** Paper 6 completes Stage One. After Papers 1-6, a user can write a full concurrent networking application against the standard: `task<>` coroutines accepting `any_stream&`, standard `DynamicBuffer` for parsing, `thread_pool` for execution, `strand` for serialization, `when_all`/`when_any` for concurrency. The standard provides the vocabulary; adapters bridge to the I/O backend. When Stage Two ships, the adapters become unnecessary.
 
-### 8.5 Papers 5-7: Timers, Signals, Files
+### 8.7 Papers 7-9: Timers, Signals, Files
 
-**Paper 5: Timers.** `timer` with `wait()`, `expires_at()`, `expires_after()`, `cancel()`. Uses `std::chrono::steady_clock`. The simplest kernel interaction that proves the IoAwaitable protocol works end-to-end with a real operating system. Shipping in Corosio. Cross-platform.
+**Paper 7: Timers.** `timer` with `wait()`, `expires_at()`, `expires_after()`, `cancel()`. Uses `std::chrono::steady_clock`. The simplest kernel interaction that proves the IoAwaitable protocol works end-to-end with a real operating system. Shipping in Corosio. Cross-platform.
 
-**Paper 6: Signals.** `signal_set` with `add()`, `remove()`, `wait()`, `cancel()`. Signals complete the server lifecycle: `co_await when_all(accept_loop(), signal_set.wait())` is graceful shutdown in one line. `<csignal>` is from 1989 and nearly unusable with modern C++. Shipping in Corosio.
+**Paper 8: Signals.** `signal_set` with `add()`, `remove()`, `wait()`, `cancel()`. Signals complete the server lifecycle: `co_await when_all(accept_loop(), signal_set.wait())` is graceful shutdown in one line. `<csignal>` is from 1989 and nearly unusable with modern C++. Shipping in Corosio.
 
-**Paper 7: Files.** Async file I/O: `file` with `read_some()`, `write_some()`, `open()`, `close()`, and positioning. A `file` satisfies `Stream`. The same generic algorithms work on files and sockets. On Linux, `io_uring`. On Windows, IOCP with `FILE_FLAG_OVERLAPPED`. To be built in Corosio on solved infrastructure.
+**Paper 9: Files.** Async file I/O: `file` with `read_some()`, `write_some()`, `open()`, `close()`, and positioning. A `file` satisfies `Stream`. The same generic algorithms work on files and sockets. On Linux, `io_uring`. On Windows, IOCP with `FILE_FLAG_OVERLAPPED`. To be built in Corosio on solved infrastructure.
 
-### 8.6 Papers 8-10: TCP, DNS, UDP
+### 8.8 Papers 10-12: TCP, DNS, UDP
 
-**Paper 8: TCP.** `tcp_socket`, `tcp_acceptor`, `endpoint`, `ipv4_address`, `ipv6_address`. A `tcp_socket` satisfies `Stream`. This delivers what the committee has been trying to standardize since [N1925](https://wg21.link/n1925)<sup>[5]</sup> (2005). Shipping in Corosio. Used by other Boost libraries and users.
+**Paper 10: TCP.** `tcp_socket`, `tcp_acceptor`, `endpoint`, `ipv4_address`, `ipv6_address`. A `tcp_socket` satisfies `Stream`. This delivers what the committee has been trying to standardize since [N1925](https://wg21.link/n1925)<sup>[5]</sup> (2005). Shipping in Corosio. Used by other Boost libraries and users.
 
-**Paper 9: DNS.** `resolver` with `resolve(host, service)` for forward resolution and `resolve(endpoint)` for reverse resolution. Without DNS, TCP sockets can only connect to hardcoded IP addresses. Shipping in Corosio.
+**Paper 11: DNS.** `resolver` with `resolve(host, service)` for forward resolution and `resolve(endpoint)` for reverse resolution. Without DNS, TCP sockets can only connect to hardcoded IP addresses. Shipping in Corosio.
 
-**Paper 10: UDP.** `udp_socket` with `send_to()`, `receive_from()`, `bind()`, and multicast support. UDP is the transport for DNS, QUIC/HTTP/3, game networking, media streaming, and IoT protocols. To be built in Corosio on solved infrastructure.
+**Paper 12: UDP.** `udp_socket` with `send_to()`, `receive_from()`, `bind()`, and multicast support. UDP is the transport for DNS, QUIC/HTTP/3, game networking, media streaming, and IoT protocols. To be built in Corosio on solved infrastructure.
 
-### 8.7 Paper 11: TLS
+### 8.9 Paper 13: TLS
 
 Transport security wrappers: `tls_context` for portable certificate management and `tls_stream` for encrypted I/O. A `tls_stream` wraps any `Stream` and satisfies `Stream` itself. The cryptographic engine is implementation-defined. ABI-stable by design.
 
@@ -384,15 +406,13 @@ Domain specialization is not fragmentation. GPU compute got `nvexec` with CUDA e
 
 The stream concepts impose no async-model dependency. A sender-based I/O library could define a `sender_stream` that satisfies `ReadStream` / `WriteStream` by returning sender-based awaitables. The concepts provide byte-oriented stream vocabulary that the entire ecosystem - including the sender ecosystem - can adopt.
 
-The buffer concepts (Paper 2) have no async dependency at all. They are pure vocabulary for every I/O proposal.
+The buffer concepts (Paper 4) have no async dependency at all. They are pure vocabulary for every I/O proposal.
 
 ### 9.4 Diversification Protects the Timeline
 
 If the committee relies exclusively on one async path for networking and that path encounters delays, the networking timeline slips again. This has happened before.
 
-Stage One costs the committee nothing to let proceed in parallel. Four papers of pure C++20 with no platform dependency. If sender-based networking succeeds, the buffer concepts and stream concepts enrich it. Nothing is wasted. If it encounters delays, the committee has an independent path ready.
-
-SG14 published formal direction in the February 2026 mailing: "SG14 advise that Networking (SG4) should not be built on top of [P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup>. The allocation patterns required by [P2300R10](https://wg21.link/p2300r10) are incompatible with low-latency networking requirements. [...] Prioritize [P4003R0](https://wg21.link/p4003r0)<sup>[2]</sup> (or similar Direct Style concepts) as the C++29 Networking model." The domain experts whose requirements are the most stringent have independently concluded domain separation.
+Stage One costs the committee nothing to let proceed in parallel. Pure C++20 with no platform dependency. If sender-based networking succeeds, the buffer concepts and stream concepts enrich it. Nothing is wasted. If it encounters delays, the committee has an independent path ready.
 
 Letting both paths proceed is the conservative choice.
 
@@ -408,7 +428,7 @@ A coroutine-native I/O design has boundaries. Stating them plainly is part of th
 
 - **Cooperative scheduling.** The model assumes cooperative multitasking. Preemptive multitasking is outside scope.
 
-- **Unbuilt papers.** Papers 7 (Files) and 10 (UDP) are not yet implemented in Corosio. The I/O context infrastructure already handles datagram descriptors and overlapped file handles. These wrappers are incremental work on solved infrastructure.
+- **Unbuilt papers.** Papers 9 (Files) and 12 (UDP) are not yet implemented in Corosio. The I/O context infrastructure already handles datagram descriptors and overlapped file handles. These wrappers are incremental work on solved infrastructure.
 
 - **C library dependencies.** TLS wrappers depend on C libraries (OpenSSL, WolfSSL). The standard does not eliminate that dependency. It provides the stream abstraction that makes such wrappers composable and replaceable.
 
@@ -424,20 +444,24 @@ Target: all papers through LEWG by end of 2028. LWG wording through 2029H1.
 
 | Quarter | Paper                  | Milestone                          |
 | ------- | ---------------------- | ---------------------------------- |
-| Q1 2026 | Coroutines for I/O     | P4003R0 published                  |
-| Q2 2026 | Coroutines for I/O     | First LEWG review at Brno          |
+| Q1 2026 | IoAwaitable Protocol   | P4003R1 published                  |
+| Q2 2026 | IoAwaitable Protocol   | First LEWG review at Brno          |
+| Q2 2026 | Coroutine Task         | Paper published                    |
 | Q2 2026 | I/O Buffer Ranges      | Paper published                    |
-| Q3 2026 | Stream Concepts        | Paper published                    |
+| Q3 2026 | Executor Utilities     | Paper published                    |
+| Q3 2026 | Coroutine Task         | LEWG review                        |
 | Q3 2026 | I/O Buffer Ranges      | LEWG review                        |
-| Q4 2026 | Coroutine Runtime      | Paper published                    |
-| Q4 2026 | Stream Concepts        | LEWG review                        |
+| Q4 2026 | Stream Concepts        | Paper published                    |
+| Q4 2026 | Combinators            | Paper published                    |
+| Q4 2026 | Executor Utilities     | LEWG review                        |
 
-### 11.2 Phase 2: Stage Two Begins (2027 H1)
+### 11.2 Phase 2: Stage One Completion + Stage Two Begins (2027 H1)
 
 | Quarter | Paper                  | Milestone                          |
 | ------- | ---------------------- | ---------------------------------- |
+| Q1 2027 | Stream Concepts        | LEWG review                        |
+| Q1 2027 | Combinators            | LEWG review                        |
 | Q1 2027 | Timers                 | Paper published                    |
-| Q1 2027 | Coroutine Runtime      | LEWG review                        |
 | Q2 2027 | Signals, Files         | Papers published                   |
 | Q2 2027 | Timers                 | LEWG review                        |
 
@@ -492,7 +516,7 @@ We built this. It works. We are reporting what we found.
 ## References
 
 1. [P2300R10](https://wg21.link/p2300r10) - "`std::execution`" (Micha&#322; Dominiak, Lewis Baker, Lee Howes, Kirk Shoop, Michael Garland, Eric Niebler, Bryce Adelstein Lelbach, 2024). https://wg21.link/p2300r10
-2. [P4003R0](https://wg21.link/p4003r0) - "Coroutines for I/O" (Vinnie Falco, Steve Gerbino, Michael Vandeberg, Mungo Gill, Mohammad Nejati, 2026). https://wg21.link/p4003r0
+2. [P4003R1](https://wg21.link/p4003r1) - "A Minimal Coroutine Execution Model" (Vinnie Falco, Steve Gerbino, Mungo Gill, 2026). https://wg21.link/p4003r1
 3. [P4007R0](https://wg21.link/p4007r0) - "Senders and Coroutines" (Vinnie Falco, Mungo Gill, 2026). https://wg21.link/p4007r0
 4. [P4014R0](https://wg21.link/p4014r0) - "The Sender Sub-Language" (Vinnie Falco, 2026). https://wg21.link/p4014r0
 5. [N1925](https://wg21.link/n1925) - "A Proposal to Add Networking Utilities to the C++ Standard Library" (Chris Kohlhoff, 2005). https://wg21.link/n1925

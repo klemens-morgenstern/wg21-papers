@@ -24,7 +24,7 @@ Who the author is, what they maintain, what they have built.
 
 ### B1. Network Endeavor Membership
 
-**Text:** This paper is part of the [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)), a project to bring coroutine-native byte-oriented I/O to C++.
+**Text:** This paper is part of the [Network Endeavor](https://wg21.link/p4100r0) ([P4100R0](https://wg21.link/p4100r0)), a project to bring coroutine-native I/O to C++.
 
 **When:** The paper is in `source/network-endeavor/`.
 
@@ -44,9 +44,9 @@ Who the author is, what they maintain, what they have built.
 
 Where the author stands on contested questions.
 
-### C1. Coexistence with `std::execution`
+### C1. Complement with `std::execution`
 
-**Text:** Coroutine-native I/O and `std::execution` address different domains and should coexist in the C++ standard.
+**Text:** Coroutine-native I/O and `std::execution` are complementary. Each serves the domain where its design choices pay off.
 
 **When:** The paper touches the relationship between coroutine-based I/O and sender/receiver.
 

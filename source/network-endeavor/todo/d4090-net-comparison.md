@@ -13,7 +13,7 @@ audience: LEWG
 
 The sender composition algebra does not apply to compound I/O results without losing data, and the construction that preserves all data produces code identical to the coroutine version.
 
-Four sender-based TCP echo servers are constructed from [P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup> and [P3552R3](https://wg21.link/p3552r3)<sup>[2]</sup> and compared against a coroutine-native echo server. The sender composition algebra - `when_all` cancellation, `upon_error`, `retry` - does not apply to compound I/O results without losing data, requiring shared state, or converting routine errors to exceptions. One construction - "just use `set_value`" - preserves all data by bypassing the composition algebra entirely, producing code nearly identical to the coroutine version. Both paradigms are equivalent when compound results stay on the value channel. The composition algebra is the sender model's value proposition over coroutines - the reason to accept its additional complexity. If it does not apply to compound I/O results, the programmer pays the cost of the sender model and receives the coroutine model's behavior. The finding is about cost, not defect.
+Four sender-based TCP echo servers are constructed from [P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup> and [P3552R3](https://wg21.link/p3552r3)<sup>[2]</sup> and compared against a coroutine-native echo server. The sender composition algebra - `when_all` cancellation, `upon_error`, `retry` - does not apply to compound I/O results without losing data, requiring shared state, or converting routine errors to exceptions. One construction - "just use `set_value`" - preserves all data by bypassing the composition algebra entirely, producing code nearly identical to the coroutine version. Both paradigms are equivalent when compound results stay on the value channel. The composition algebra is the sender model's error-handling value proposition over coroutines - the reason to accept its additional complexity for I/O. If it does not apply to compound I/O results, the programmer pays the cost of the sender model and receives the coroutine model's error-handling behavior. Compile-time work graphs, lazy evaluation, and scheduling remain genuine sender additions. The finding is about cost, not defect.
 
 ---
 
@@ -102,7 +102,7 @@ Each approach is constructed from [P2300R10](https://wg21.link/p2300r10)<sup>[1]
 
 K&uuml;hl enumerated five channel-routing options in [P2762R2](https://wg21.link/p2762r2)<sup>[10]</sup> Section 4.2 and noted: "some of the error cases may have been partial successes...using the set_error channel taking just one argument is somewhat limiting." Shoop identified the same difficulty in [P2471R1](https://wg21.link/p2471r1)<sup>[11]</sup>: completion tokens translating to senders "must use a heuristic to type-match the first arg."
 
-[P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup> Section 1.3 demonstrates the pattern:
+[P2300R10](https://wg21.link/p2300r10)<sup>[1]</sup> Section 4.14 demonstrates the pattern:
 
 ```cpp
 return read_socket_async(socket, span{buff})
@@ -628,7 +628,7 @@ Any person quoted in this paper who believes their words have been presented out
 
 16. Ville Voutilainen, [libunifex-with-qt](https://git.qt.io/vivoutil/libunifex-with-qt) - Qt/stdexec integration examples (2024). https://git.qt.io/vivoutil/libunifex-with-qt
 
-17. [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) - "The Case for Coroutines" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4088R0.pdf
+17. [P4088R0](https://isocpp.org/files/papers/P4088R0.pdf) - "What C++20 Coroutines Already Buy The Standard" (Vinnie Falco, 2026). https://isocpp.org/files/papers/P4088R0.pdf
 
 18. [P3796R1](https://wg21.link/p3796r1) - "Coroutine Task Issues" (Dietmar K&uuml;hl, 2025). https://wg21.link/p3796r1
 
