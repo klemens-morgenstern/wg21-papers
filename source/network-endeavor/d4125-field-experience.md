@@ -1,7 +1,7 @@
 ---
 title: "Report: Coroutine-Native I/O at a Derivatives Exchange"
 document: P4125R1
-date: 2026-03-17
+date: 2026-04-06
 reply-to:
   - "Mungo Gill <mungo.gill@me.com>"
   - "C++ Alliance Proposal Team"
@@ -12,11 +12,16 @@ audience: SG14, LEWG
 
 A derivatives exchange is porting from Asio callbacks to coroutine-native I/O. Early results: it works.
 
-The paper reports qualitative findings from two structured interviews with the engineering team. The results are preliminary - the integration covers a subset of the platform and no performance benchmarks have been completed - but the field evidence is reported here for the committee's consideration.
+The paper reports qualitative findings from three structured interviews with the engineering team. The results are preliminary - the integration covers a subset of the platform and no performance benchmarks have been completed - but the field evidence is reported here for the committee's consideration.
 
 ---
 
 ## Revision History
+
+### R1: April 2026
+
+- Added third engineer interview (Engineer C)
+- Expanded build experience, timer migration, and documentation findings
 
 ### R0: March 2026
 
@@ -64,16 +69,17 @@ The project is structured in phases: foundational library porting first, then TC
 
 ## 3. Methodology
 
-Two structured interviews were conducted with members of the integration partner's engineering team in March 2026:
+Three structured interviews were conducted with members of the integration partner's engineering team in March 2026:
 
 - **Engineer A** (CEO, highly experienced C++ engineer): ~90 minute interview covering build integration, incremental adoption strategy, and architectural assessment.
 - **Engineer B** (platform architect): ~70 minute interview covering callback-to-coroutine migration, error handling, and production readiness assessment.
+- **Engineer C** (developer, newer to the codebase): ~55 minute interview covering build experience, documentation quality, timer migration, and coroutine design assessment. Engineer C had no prior production experience with C++ coroutines.
 
-Both engineers had been working with Capy and Corosio for approximately two weeks at the time of their interviews. All quotes in this paper are verbatim transcriptions. A project journal maintained by the engineering team provided supplementary context.
+Engineers A and B had been working with Capy and Corosio for approximately two weeks at the time of their interviews. Engineer C was interviewed one week later. All quotes in this paper are verbatim transcriptions. A project journal maintained by the engineering team provided supplementary context.
 
-The interviews were qualitative. No metrics, benchmarks, or automated measurements are reported. The findings represent the subjective assessments of two experienced engineers at the early stage of an ongoing integration. They carry the weight appropriate to their scope.
+The interviews were qualitative. No metrics, benchmarks, or automated measurements are reported. The findings represent the subjective assessments of three engineers at the early stage of an ongoing integration. They carry the weight appropriate to their scope.
 
-Both interviews were conducted remotely over video call; the Capy/Corosio author was present for technical questions but did not participate in the assessment discussions.
+All interviews were conducted remotely over video call; the Capy/Corosio author was present for technical questions but did not participate in the assessment discussions.
 
 ---
 
@@ -91,9 +97,21 @@ Migrating production callback-based code to coroutines was feasible and less dis
 
 > "The changes we've had to make haven't been as drastic as maybe once thought." - Engineer B
 
+Engineer C, working independently on a different part of the codebase, reached the same conclusion:
+
+> "It was easier than expected I think." - Engineer C
+
 Recursive callback patterns (retry loops, reconnection handlers) converted naturally to structured coroutine loops, which the engineers described as simpler and more readable than the callback originals.
 
-### 4.2 Incremental Adoption
+### 4.2 Timer Migration
+
+Engineer C's work focused on replacing Asio timer callbacks with coroutine equivalents. The Asio pattern uses recursive callbacks - a timer fires, executes a handler, and re-arms itself within the same handler. This pattern does not translate directly to coroutines:
+
+> "We relied on an Asio callback which does a recursive thing - it's kind of like set up the timer and it expires on a given interval, keeps re-entering the same function. But with coroutines I don't think you can do that recursively." - Engineer C
+
+Engineer C considered symmetric transfer as a solution but concluded it would result in a stack overflow. The correct coroutine equivalent is a simple loop with `co_await` on each timer expiry - a structurally simpler construct, but one that requires recognising the pattern translation.
+
+### 4.3 Incremental Adoption
 
 Engineer A designed a "springboard function" approach to insulate the existing callback codebase from requiring full coroutine propagation:
 
@@ -103,13 +121,29 @@ Engineer A designed a "springboard function" approach to insulate the existing c
 
 The approach uses an `executor_traits` abstraction layer allowing parallel Asio and Capy implementations. Tests run identically against both backends, validating behavioural equivalence. The dual-backend approach allowed the team to port incrementally without disrupting the existing Asio codebase.
 
-### 4.3 Coroutine-Only Design
+### 4.4 Coroutine-Only Design
 
 Engineer B endorsed the coroutine-only design philosophy:
 
 > "The tradeoffs around callbacks versus coroutines - if you've got a sufficiently modern codebase, I think there's a very strong reason that you could choose the coroutine route and have very little tradeoff." - Engineer B
 
 > "Doing one thing and doing it very well and focusing just on that, I think, has a lot of merit." - Engineer B
+
+Engineer C found the coroutine model more intuitive to write but was more cautious about its fit with existing code:
+
+> "It feels like there's a ground up approach with Capy and the use of the tasks which is really easy to use and it feels like it's quite easy to start constructing a larger application. But I'm still not sure how it fits into an existing application." - Engineer C
+
+### 4.5 Build Experience
+
+Engineer C reported a straightforward build experience. The CMake snippet in the repository README compiled cleanly on the first attempt, and the dependency relationship between Capy and Corosio was handled automatically. Time from source code to a running programme was less than one hour. Compilation times were not noticeably different from Asio.
+
+### 4.6 Documentation
+
+Documentation was generally praised. Engineer C, who had no prior coroutine experience, found the introductory topics in Capy on coroutines and concurrency brought him up to speed effectively. He compared the documentation favourably to Asio's:
+
+> "With the Capy documentation there's obviously a lot more of a background explained with your documents." - Engineer C
+
+Areas identified for improvement included the stream concepts section (which assumed background knowledge the developer did not have) and code examples (which could benefit from wider context - full programmes rather than isolated snippets). These are documentation issues, not library design issues, but they affect adoption.
 
 ---
 
@@ -143,9 +177,19 @@ Engineer B's assessment is more confident:
 
 > "I would definitely not steer anyone away from it after what I've experienced so far." - Engineer B
 
-Engineer B's endorsement carries a caveat for teams with deeply entrenched Asio codebases - particularly those with complex multi-threading and multiple thread pools, where the migration would be substantially harder.
+Engineer C's assessment was more measured - he is earlier in the integration process and working on a narrower scope:
 
-These assessments are based on approximately two weeks of integration work covering a subset of the platform. No performance benchmarks have been completed. These are early indicators, not final verdicts.
+> "I would say it's felt like a smooth process so far." - Engineer C
+
+> "We'd have to be sure that production or similar deployment of all our existing components have the same behaviour. So that's still a while off." - Engineer C
+
+When asked what he would warn another team considering the port:
+
+> "I'd probably warn about the length of time that it would take. Wondering whether trading off the length of time would be worth it." - Engineer C
+
+Engineers B and C both noted caveats for teams with deeply entrenched Asio codebases - particularly those with complex multi-threading and multiple thread pools, where the migration would be substantially harder. The time investment required for a complete port should not be underestimated.
+
+These assessments are based on two to three weeks of integration work covering a subset of the platform. No performance benchmarks have been completed. These are early indicators, not final verdicts.
 
 ---
 
@@ -163,15 +207,17 @@ How errors flow through coroutine pipelines is not an abstract design question. 
 
 [P4003R0](https://wg21.link/p4003r0)<sup>[3]</sup> proposes that C++20 coroutines are suited to I/O, and [P4014R0](https://wg21.link/p4014r0)<sup>[5]</sup> argues that coroutines (direct style) are a natural complement to senders (continuation-passing style). The integration described in this paper provides early qualitative evidence bearing on these claims.
 
-A derivatives exchange platform with a large, predominantly C++ codebase and a majority callback-based architecture is porting to a coroutine-native library. After two weeks of work, two engineers independently found the migration less disruptive than anticipated and endorsed the coroutine-only design philosophy. These are preliminary impressions from experienced engineers, not validated production results.
+A derivatives exchange platform with a large, predominantly C++ codebase and a majority callback-based architecture is porting to a coroutine-native library. After two to three weeks of work, three engineers independently found the migration less disruptive than anticipated. Two endorsed the coroutine-only design philosophy; the third found it intuitive but reserved judgement on its fit with existing applications. These are preliminary impressions, not validated production results.
 
 [P4007R1](https://isocpp.org/files/papers/P4007R1.pdf)<sup>[4]</sup> notes that zero open-source sender-based networking stacks exist, while six coroutine-based stacks are in production use. This integration adds a seventh data point.
 
 ### 7.3 Accessibility
 
-[P4014R0](https://wg21.link/p4014r0)<sup>[5]</sup> argues that the sender model constitutes a "sub-language" with its own control flow, variable binding, and error handling - creating a learning burden distinct from standard C++. Both engineers in this study found a coroutine-native API at least as accessible as Asio's callback model. Engineer A observed:
+[P4014R0](https://wg21.link/p4014r0)<sup>[5]</sup> argues that the sender model constitutes a "sub-language" with its own control flow, variable binding, and error handling - creating a learning burden distinct from standard C++. All three engineers in this study found a coroutine-native API at least as accessible as Asio's callback model. Engineer A observed:
 
 > "This library is probably something a new user could turn to and use pretty much directly." - Engineer A
+
+Engineer C had no prior production experience with C++ coroutines and found the documentation sufficient to become productive. His introductory exposure was limited to a single ACCU conference talk on C++20 several years earlier.
 
 ---
 
@@ -179,8 +225,8 @@ A derivatives exchange platform with a large, predominantly C++ codebase and a m
 
 This paper reports early-stage, qualitative findings. The following limitations apply:
 
-- **Small sample.** Two engineers from one organisation. Their experience may not generalise.
-- **Early stage.** Approximately two weeks of integration work. The porting covers a subset of the platform. No production traffic has been routed through the coroutine-native code.
+- **Small sample.** Three engineers from one organisation. Their experience may not generalise.
+- **Early stage.** Approximately two to three weeks of integration work. The porting covers a subset of the platform. No production traffic has been routed through the coroutine-native code.
 - **No benchmarks.** The central research question - whether coroutine-native I/O can match or exceed Asio's performance - remains unanswered. The benchmarking phase has not begun.
 - **Qualitative, not quantitative.** All findings are based on interview responses. No automated measurements, code metrics, or defect counts are reported.
 - **Author affiliation.** The libraries under test were developed by the author's organisation. The integration partner is independent, but the study design and reporting are not.
