@@ -178,7 +178,7 @@ C++ has shipped multiple models for parallel execution (`std::execution_policy` 
 
 ### 6.2 Stackless, frame-erased (C++20 coroutines)
 
-C++20 coroutines type-erase the frame through `coroutine_handle<>`. The promise type is invisible to the caller. The caller sees only a handle. This is ideal for I/O: type erasure gives type-erased streams, split compilation, and ABI stability. The I/O library compiles once. Transport changes do not break the ABI.
+C++20 coroutines type-erase the frame through `coroutine_handle<T>`. While the promise type is visible to the sender, the frame is not. The caller sees only a handle. This is ideal for I/O: type erasure gives type-erased streams, split compilation, and ABI stability. The I/O library compiles once. Transport changes do not break the ABI.
 
 `std::execution` ([P2300R10](https://wg21.link/p2300r10)<sup>[20]</sup>) provides compile-time sender composition, structured concurrency guarantees, and a customization point model that enables heterogeneous dispatch. These are real achievements. The sender model serves GPU dispatch, parallel algorithms, and infrastructure well.
 
@@ -231,10 +231,11 @@ When the reactor completes an I/O operation and calls `executor.dispatch(h)`, th
 A sender pipeline would use a callback handle like this:
 
 ```cpp
+template<typename Promise>
 struct callback_frame {
     void (*resume)(callback_frame*);
     void (*destroy)(callback_frame*);
-    void* data;
+    Promise promise;
 };
 
 template<class Receiver>
@@ -244,19 +245,26 @@ struct read_op_state {
     Receiver rcvr_;
     read_some_awaitable aw_;
     io_env env_;
-    callback_frame cb_;
+    callback_frame<read_op_state*> cb_;
 
     static void on_resume(
-        callback_frame* p) noexcept
+        callback_frame<read_op_state>* p) noexcept
     {
-        auto* self = static_cast<
-            read_op_state*>(p->data);
+        auto* self = p->promise;
         auto result =
             self->aw_.await_resume();
         set_value(
             std::move(self->rcvr_),
             result);
     }
+    
+    static void on_destroy(
+        callback_frame<read_op_state>* p) noexcept
+    {
+        set_done(self->rcvr_);
+    }
+    
+    
 
     void start() noexcept
     {
@@ -268,14 +276,13 @@ struct read_op_state {
         }
 
         cb_.resume = &on_resume;
-        cb_.destroy =
-            +[](callback_frame*) {};
+        cb_.destroy = &on_destroy;
         cb_.data = this;
 
         auto h =
             coroutine_handle<>::from_address(
                 &cb_);
-        aw_.await_suspend(h, &env_);
+        aw_.await_suspend(h, &env_).resume();
     }
 };
 ```
@@ -295,16 +302,17 @@ The `io_env` carries the sender's executor. The awaitable submits the operation 
 [P3203R0](https://wg21.link/p3203r0)<sup>[19]</sup> documents that all three major compilers (MSVC, GCC, Clang) use the same coroutine frame layout:
 
 ```cpp
+template<typename Promise = void>
 struct coroutine_frame {
     void (*resume)(coroutine_frame*);
     void (*destroy)(coroutine_frame*);
-    promise_type promise;
+    Promise promise;
 };
 ```
 
 The `.resume()` member function of `coroutine_handle<>` calls the function pointer at offset 0. A user-provided struct with the same two-pointer prefix works on every compiler today.
 
-[P3203R0](https://wg21.link/p3203r0)<sup>[19]</sup> identifies the same use case this paper describes: allowing non-coroutine code to provide a `coroutine_handle` that participates in the awaitable protocol. Morgenstern demonstrates this in Boost.Cobalt for Python bindings and stackful coroutine integration.
+[P3203R0](https://wg21.link/p3203r0)<sup>[19]</sup> identifies the same use case this paper describes: allowing non-coroutine code to provide a `coroutine_handle` that participates in the awaitable protocol. Morgenstern demonstrates this in Boost.Cobalt for  stackful coroutine integration.
 
 The wording change in [P3203R0](https://wg21.link/p3203r0)<sup>[19]</sup> is the legal prerequisite for the callback handle approach described in Section 9.
 
@@ -319,10 +327,17 @@ The approach requires no `coroutine_handle` specialization, no factory function,
 The user defines a struct with `resume` and `destroy` function pointers at offsets 0 and 1:
 
 ```cpp
+template<typename Promise = void>
 struct callback_frame {
     void (*resume)(callback_frame*);
     void (*destroy)(callback_frame*);
-    void* data;
+    Promise promise;
+};
+
+template<>
+struct callback_frame<void> {
+    void (*resume)(callback_frame*);
+    void (*destroy)(callback_frame*);
 };
 ```
 
